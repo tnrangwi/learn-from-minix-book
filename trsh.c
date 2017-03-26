@@ -29,13 +29,15 @@ int main(int argc, char *argv[]) {
             }
 //fprintf(stderr, "Free....%d\n",numCmd);
             //find pipes and process chain by chain
-            //FIXME: Uncommented, endless loop and error processing command, so uncommented
-            /*
             for (i = 0; i < numCmd;) {
                 for (j = i; multiCmd[j].next == CMD_PIPE; j++); //FIXME: If parser fails checking command ending with pipe, overflow!
+                //FIXME: Errors;
+                // - executing any command seems to fail (but is obviously executed)
+                // - when running pipe like /bin/ls | false - suddenly output of /bin/ls is in stdin
+                // looks like error in usage of filedescriptors with pipe() command.
                 cmd_runPipe(multiCmd + j, j - i);
+                i = j + 1;
             }
-            */
             cmd_free(multiCmd, numCmd);
         }
     }
