@@ -86,7 +86,7 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
     char **tmpWords = NULL; //Temporary pointer for memory allocation
     char *tmpWord = NULL; //Temporary pointer for memory allocation
     //character constants
-    const char *commandChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567_-@.,=";
+    const char *commandChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567_-@.,=/";
     const char *whiteSpace = " \t\r";
     const char *pos; //looper through command line
     const int initBufsize = 32;
@@ -98,7 +98,9 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
     }
     pos = line;
     state = PARSE_WHITESPACE;
+//fprintf(stderr, "Start parsing commandline...:%s.\n",line);
     for (pos = line; *pos != '\0' && *pos != '\n'; pos++) {
+//fprintf(stderr, "Character:%c.\n", *pos);
         switch (state) {
             case PARSE_WHITESPACE:
                 if (isIn(*pos, whiteSpace)) { 
@@ -246,26 +248,32 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
                 return -3;
         }
     }
-    switch (state) {
-        case PARSE_WHITESPACE:
-            actCmd->next = CMD_TERMINATED;
-            break;
-        case PARSE_WORD:
-            actCmd->words[actCmd->args - 1][numChars] = '\0';
-            actCmd->next = CMD_TERMINATED;
-            break;
-        case PARSE_PIPE:
-            cmd_free(result, numCmds);
-            fprintf(stderr, "Unexpected pipe at end of command line.\n");
-            return -2;
-            break;
-        case PARSE_BGROUND:
-            actCmd->next = CMD_BGROUND;
-            break;
-        default:
-            cmd_free(result, numCmds);
-            fprintf(stderr, "Unexpected state at end of parsing:%d\n", state);
-            return -3;
+//fprintf(stderr, "Left loop\n");
+    //Parsing finished - check state to terminate command properly - if termination did not happen
+    //already.
+    //FIXME: Check when this is necessary, as in the last command we may get here without an act command.
+    if (actCmd != NULL) {
+        switch (state) {
+            case PARSE_WHITESPACE:
+                actCmd->next = CMD_TERMINATED;
+                break;
+            case PARSE_WORD:
+                actCmd->words[actCmd->args - 1][numChars] = '\0';
+                actCmd->next = CMD_TERMINATED;
+                break;
+            case PARSE_PIPE:
+                cmd_free(result, numCmds);
+                fprintf(stderr, "Unexpected pipe at end of command line.\n");
+                return -2;
+                break;
+            case PARSE_BGROUND:
+                actCmd->next = CMD_BGROUND;
+                break;
+            default:
+                cmd_free(result, numCmds);
+                fprintf(stderr, "Unexpected state at end of parsing:%d\n", state);
+                return -3;
+        }
     }
     *commands = result;
     return numCmds;
