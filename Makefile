@@ -18,3 +18,6 @@ trsh: $(OBJ)
         
 clean:
 	rm -f $(ODIR)/*.o
+
+mrproper: clean
+	rm -f trsh
