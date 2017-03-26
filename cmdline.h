@@ -17,3 +17,4 @@ struct cmd_chainlink {
 int cmd_parse(const char *line, struct cmd_chainlink **commands);
 const char* cmd_showNext(enum cmd_next code);
 void cmd_free(struct cmd_chainlink *commands, int numCmds);
+int cmd_runPipe(struct cmd_chainlink*, int chainlength);

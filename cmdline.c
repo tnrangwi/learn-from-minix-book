@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <unistd.h>
+#include <sys/wait.h>
 #include "cmdline.h"
 
 #define PARSE_UNKNOWN 0
@@ -279,3 +281,60 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
     return numCmds;
 }
 
+/**
+    Run a pipe. The last command of the pipe is always run, the command before the last is
+    passed recursively with the whole rest of the pipe to be processed.
+ */
+int cmd_runPipe(struct cmd_chainlink *chain, int chainlength) {
+    int childcall;
+    int result;
+    if (chainlength > 0) {
+        //another sub process needed for pipe...
+        int fds[2];
+        int childpipe;
+        pipe(fds);
+        childpipe = fork();
+        if (childpipe > 0) {
+            close(fds[1]); //close write end of pipe
+            close(0); dup(fds[0]); //replace stdin by pipe reading end
+        } else if (childpipe == 0) {
+            close(fds[0]);
+            close(1); dup(fds[1]);
+            result = cmd_runPipe(chain - 1, chainlength - 1);
+            fprintf(stderr, "Sub-pipe returned %d. Exiting sub-process\n", result);
+            exit(EXIT_SUCCESS);
+        } else {
+            fprintf(stderr, "Fork failed in split pipe\n");
+            //Either this is our main process - then return, command will fail
+            //or this is a child already - then caller will terminate process
+            return -1;
+        }
+    }
+    childcall = fork();
+    //FIXME: 1st search for command before forking. Has to be a full path.
+    if (childcall == 0) {
+        //do redirections of command
+        //handling of commands, search command in path, etc
+        execve(chain->words[0], chain->words, NULL);
+        //we are still here - unable to start command - error handling
+        fprintf(stderr, "Error executing external call:%s\n", chain->words[0]);
+        exit(EXIT_FAILURE);
+    } else if (childcall > 0) {
+        int callstat = 0;
+        pid_t r = waitpid(childcall, &callstat, 0);
+        if (r > 0) {
+            if (WIFEXITED(callstat)) {
+                return WEXITSTATUS(callstat);
+            } else {
+                fprintf(stderr, "Process got signal:%d\n", WTERMSIG(callstat));
+                return -1;
+            }
+        } else {
+            fprintf(stderr, "Wait for caller terminated unexpectedly\n");
+            return -1;
+        }
+    } else {
+        fprintf(stderr, "Fork failed in start job\n");
+        return -1;
+    }
+}
