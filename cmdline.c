@@ -3,6 +3,8 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <stdio.h>
+#include <string.h>
 #include "cmdline.h"
 
 #define PARSE_UNKNOWN 0
@@ -317,7 +319,7 @@ int cmd_runPipe(struct cmd_chainlink *chain, int chainlength) {
         //handling of commands, search command in path, etc
         execve(chain->words[0], chain->words, NULL);
         //we are still here - unable to start command - error handling
-        fprintf(stderr, "Error executing external call:%s\n", chain->words[0]);
+        fprintf(stderr, "Error executing external call:%s:Error:%s\n", chain->words[0], strerror(errno));
         exit(EXIT_FAILURE);
     } else if (childcall > 0) {
         int callstat = 0;
