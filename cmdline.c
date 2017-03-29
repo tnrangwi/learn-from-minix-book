@@ -103,6 +103,8 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
     pos = line;
     state = PARSE_WHITESPACE;
 //fprintf(stderr, "Start parsing commandline...:%s.\n",line);
+//FIXME: For use with execve, a null terminated last element is needed
+//FIXME: Several similar lines of code should be put into macro
     for (pos = line; *pos != '\0' && *pos != '\n'; pos++) {
 //fprintf(stderr, "Character:%c.\n", *pos);
         switch (state) {
@@ -111,7 +113,8 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
                     ; //ignopre only, nothing to do
                 } else if (isIn(*pos, commandChars)) {
                     //either a new command line starts, or a new word in the current command line
-                    if (numCmds == 0 || actCmd == NULL) {
+                    if (numCmds == 0 || actCmd == NULL) { //FIXME; actCmd == NULL should be enough
+                        //FIXME: use one block and realloc with NULL pointer in 1st alloc, same code
                         if (numCmds == 0) { //1st command ever
                             result = (struct cmd_chainlink *) malloc(++numCmds * sizeof(struct cmd_chainlink));
                             if (result == NULL) {
@@ -130,8 +133,10 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
                         }
                         actCmd = result + numCmds - 1;
                         actCmd->args = 0;
+                        //actCmd->words = NULL;
                     }
                     if (actCmd->args == 0) { //1st word in command
+                        //FIXME: With actCmd->words initialized above just use realloc block
                         actCmd->words = (char **) malloc(++(actCmd->args) * sizeof(char *));
                         if (actCmd->words == NULL) {
                             actCmd->args--;
@@ -204,6 +209,7 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
                     actCmd->words[actCmd->args - 1][numChars] = '\0';
                     state = PARSE_WHITESPACE;
                 }  else {
+                //FIXME: This means white space before any | or & is mandatory
                     cmd_free(result, numCmds);
                     fprintf(stderr, "While parsing word, got %c.\n", *pos);
                     return -2;
@@ -213,6 +219,7 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
                 if (*pos == '|') {
                     actCmd->next = CMD_FALSE;
                     state = PARSE_WHITESPACE;
+                    //FIXME: Better set this to PARSE_OR or something to make sure there will be valid chars afterwards in this state
                     actCmd = NULL;
                 } else if (isIn(*pos, whiteSpace)) {
                     actCmd->next = CMD_PIPE;
@@ -235,10 +242,12 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
                 if (*pos == '&') {
                     actCmd->next = CMD_TRUE;
                     state = PARSE_WHITESPACE;
+                    //FIXME: See above
                     actCmd = NULL;
                 } else if (isIn(*pos, whiteSpace)) {
                     actCmd->next = CMD_BGROUND;
                     state = PARSE_WHITESPACE;
+                    //FIXME: See above
                     actCmd = NULL;
                 } else {
                     cmd_free(result, numCmds);
@@ -262,6 +271,7 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
                 actCmd->next = CMD_TERMINATED;
                 break;
             case PARSE_WORD:
+                //FIXME: Overflow if buffer is too small
                 actCmd->words[actCmd->args - 1][numChars] = '\0';
                 actCmd->next = CMD_TERMINATED;
                 break;
@@ -294,7 +304,10 @@ int cmd_runPipe(struct cmd_chainlink *chain, int chainlength) {
         //another sub process needed for pipe...
         int fds[2];
         int childpipe;
-        pipe(fds);
+        if (pipe(fds) != 0) {
+            perror("Creating pipe failed!");
+            exit(EXIT_FAILURE);
+        }
         childpipe = fork();
         if (childpipe > 0) {
             close(fds[1]); //close write end of pipe
