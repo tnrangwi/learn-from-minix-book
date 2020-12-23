@@ -1,3 +1,11 @@
+/**
+    FIXME: 1st word for call should not contain full path to command, but only command (currently e.g. /bin/ls instead of ls)
+    FIXME: When using pipe, output of 1st command becomes input of shell, shell input is gone.
+        Test with e.g. /bin/ls | /bin/grep Make - this is when the execve fails, the pipe itself seems to work
+    FIXME: /bin/ls | /bin/grep Make gives "no such file or directory, as if there is an additional argument"
+    FIXME: When running a pipe, there is one exit() too much, the shell exists.
+    FIXME: Again think about how to free memory properly, especially when calling executing with execve.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -12,6 +20,9 @@
 #define PARSE_WORD 2
 #define PARSE_PIPE 3
 #define PARSE_BGROUND 4
+
+extern char **environ;
+
 
 /**
     Display function: return descriptive string for continuation marker.
@@ -110,7 +121,7 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
         switch (state) {
             case PARSE_WHITESPACE:
                 if (isIn(*pos, whiteSpace)) { 
-                    ; //ignopre only, nothing to do
+                    ; //ignore only, nothing to do
                 } else if (isIn(*pos, commandChars)) {
                     //either a new command line starts, or a new word in the current command line
                     if (numCmds == 0 || actCmd == NULL) { //FIXME; actCmd == NULL should be enough
@@ -206,6 +217,7 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
                     }
                     actCmd->words[actCmd->args - 1][numChars - 1] = *pos;
                 } else if (isIn(*pos, whiteSpace)) {
+                    //Check whether buffer has room for the terminator
                     actCmd->words[actCmd->args - 1][numChars] = '\0';
                     state = PARSE_WHITESPACE;
                 }  else {
@@ -271,7 +283,7 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
                 actCmd->next = CMD_TERMINATED;
                 break;
             case PARSE_WORD:
-                //FIXME: Overflow if buffer is too small
+                //FIXME: Overflow if buffer is too small. There might not be enough place here for the terminator
                 actCmd->words[actCmd->args - 1][numChars] = '\0';
                 actCmd->next = CMD_TERMINATED;
                 break;
@@ -300,6 +312,7 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
 int cmd_runPipe(struct cmd_chainlink *chain, int chainlength) {
     int childcall;
     int result;
+fprintf(stderr, "Run pipe: chainlength =%d\n", chainlength);
     if (chainlength > 0) {
         //another sub process needed for pipe...
         int fds[2];
@@ -326,11 +339,30 @@ int cmd_runPipe(struct cmd_chainlink *chain, int chainlength) {
         }
     }
     childcall = fork();
-    //FIXME: 1st search for command before forking. Has to be a full path.
+    //FIXME: 1st search for command before forking. Has to be with (relative or absolute) path.
     if (childcall == 0) {
         //do redirections of command
         //handling of commands, search command in path, etc
-        execve(chain->words[0], chain->words, NULL);
+        char **argv;
+        argv = (char **) malloc((chain->args + 2) * sizeof(char *));
+        if (argv == NULL) {
+            perror("Error allocating argv");
+            exit(EXIT_FAILURE);
+        }
+        //FIXME: The 1st word should only contain the command name, not the command name with full path
+        int i_;
+        for (i_=0;i_<chain->args;i_++) {
+            argv[i_] = malloc((strlen(chain->words[i_]) + 1) * sizeof(char));
+            if (argv[i_] == NULL) {
+                perror("Error allocating argv string");
+                exit(EXIT_FAILURE);
+            }
+            strcpy(argv[i_], chain->words[i_]);
+        }
+        argv[chain->args] = NULL;
+        //At this point the argv clearly is for the new process.
+        //How do I make sure to free allocated memory?
+        execve(chain->words[0], argv, environ);
         //we are still here - unable to start command - error handling
         fprintf(stderr, "Error executing external call:%s:Error:%s\n", chain->words[0], strerror(errno));
         exit(EXIT_FAILURE);
