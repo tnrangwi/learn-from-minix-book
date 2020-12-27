@@ -30,11 +30,10 @@ int main(int argc, char *argv[]) {
 //fprintf(stderr, "Free....%d\n",numCmd);
             //find pipes and process chain by chain
             for (i = 0; i < numCmd;) {
+                //Find end of this list of commands. Pipes must be run in once, connected.
+                //When command is not terminated with pipe, then we run it up to exactly this position.
+                //j is the position of the last command to be run together with this command
                 for (j = i; multiCmd[j].next == CMD_PIPE; j++); //FIXME: If parser fails checking command ending with pipe, overflow!
-                //FIXME: Errors;
-                // - executing any command seems to fail (but is obviously executed)
-                // - when running pipe like /bin/ls | false - suddenly output of /bin/ls is in stdin
-                // looks like error in usage of filedescriptors with pipe() command.
                 cmd_runPipe(multiCmd + j, j - i);
                 i = j + 1;
             }

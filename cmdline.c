@@ -1,10 +1,5 @@
 /**
     FIXME: 1st word for call should not contain full path to command, but only command (currently e.g. /bin/ls instead of ls)
-    FIXME: When using pipe, output of 1st command becomes input of shell, shell input is gone.
-        Test with e.g. /bin/ls | /bin/grep Make - this is when the execve fails, the pipe itself seems to work
-    FIXME: /bin/ls | /bin/grep Make gives "no such file or directory, as if there is an additional argument"
-    FIXME: When running a pipe, there is one exit() too much, the shell exists.
-    FIXME: Again think about how to free memory properly, especially when calling executing with execve.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -312,9 +307,9 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
 int cmd_runPipe(struct cmd_chainlink *chain, int chainlength) {
     int childcall;
     int result;
-fprintf(stderr, "Run pipe: chainlength =%d\n", chainlength);
+fprintf(stderr, "Run pipe: # commands left to start for pipe:%d\n", chainlength);
     if (chainlength > 0) {
-        //another sub process needed for pipe...
+        //another sub process needed to feed into pipe...
         int fds[2];
         int childpipe;
         if (pipe(fds) != 0) {
@@ -323,6 +318,9 @@ fprintf(stderr, "Run pipe: chainlength =%d\n", chainlength);
         }
         childpipe = fork();
         if (childpipe > 0) {
+            //FIXME: Error: here we mess up the file descriptor of the controlling trsh,
+            //these redirections appear in the context of the caller. This does close the shell
+            //after the child is gone and closes the file descriptor
             close(fds[1]); //close write end of pipe
             close(0); dup(fds[0]); //replace stdin by pipe reading end
         } else if (childpipe == 0) {
@@ -360,8 +358,6 @@ fprintf(stderr, "Run pipe: chainlength =%d\n", chainlength);
             strcpy(argv[i_], chain->words[i_]);
         }
         argv[chain->args] = NULL;
-        //At this point the argv clearly is for the new process.
-        //How do I make sure to free allocated memory?
         execve(chain->words[0], argv, environ);
         //we are still here - unable to start command - error handling
         fprintf(stderr, "Error executing external call:%s:Error:%s\n", chain->words[0], strerror(errno));
