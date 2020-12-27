@@ -34,7 +34,7 @@ int main(int argc, char *argv[]) {
                 //When command is not terminated with pipe, then we run it up to exactly this position.
                 //j is the position of the last command to be run together with this command
                 for (j = i; multiCmd[j].next == CMD_PIPE; j++); //FIXME: If parser fails checking command ending with pipe, overflow!
-                cmd_runPipe(multiCmd + j, j - i);
+                cmd_runPipe(multiCmd + i, j - i);
                 i = j + 1;
             }
             cmd_free(multiCmd, numCmd);

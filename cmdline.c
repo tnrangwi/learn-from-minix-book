@@ -1,5 +1,9 @@
 /**
     FIXME: 1st word for call should not contain full path to command, but only command (currently e.g. /bin/ls instead of ls)
+    FIXME: file descriptors messed up in pipe. Shell input becomes input of last command, not 1st command.
+           Try /bin/ls | /bin/cat. Afterwards, you are just typing into /bin/cat. ^D ends that and the terminal input is
+           again picked by the shell and I can run a command again. But I am not able to terminate the shell any more with
+           ^D then. I need another ^D, so maybe I always end of with terminal associated with last commands input.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -301,83 +305,87 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
 }
 
 /**
-    Run a pipe. The last command of the pipe is always run, the command before the last is
-    passed recursively with the whole rest of the pipe to be processed.
+    Run a pipe or a simple command.
  */
 int cmd_runPipe(struct cmd_chainlink *chain, int chainlength) {
-    int childcall;
-    int result;
-fprintf(stderr, "Run pipe: # commands left to start for pipe:%d\n", chainlength);
-    if (chainlength > 0) {
-        //another sub process needed to feed into pipe...
-        int fds[2];
-        int childpipe;
-        if (pipe(fds) != 0) {
-            perror("Creating pipe failed!");
-            exit(EXIT_FAILURE);
-        }
-        childpipe = fork();
-        if (childpipe > 0) {
-            //FIXME: Error: here we mess up the file descriptor of the controlling trsh,
-            //these redirections appear in the context of the caller. This does close the shell
-            //after the child is gone and closes the file descriptor
-            close(fds[1]); //close write end of pipe
-            close(0); dup(fds[0]); //replace stdin by pipe reading end
-        } else if (childpipe == 0) {
-            close(fds[0]);
-            close(1); dup(fds[1]);
-            result = cmd_runPipe(chain - 1, chainlength - 1);
-            fprintf(stderr, "Sub-pipe returned %d. Exiting sub-process\n", result);
-            exit(EXIT_SUCCESS);
-        } else {
-            fprintf(stderr, "Fork failed in split pipe\n");
-            //Either this is our main process - then return, command will fail
-            //or this is a child already - then caller will terminate process
-            return -1;
-        }
-    }
-    childcall = fork();
-    //FIXME: 1st search for command before forking. Has to be with (relative or absolute) path.
-    if (childcall == 0) {
-        //do redirections of command
-        //handling of commands, search command in path, etc
-        char **argv;
-        argv = (char **) malloc((chain->args + 2) * sizeof(char *));
-        if (argv == NULL) {
-            perror("Error allocating argv");
-            exit(EXIT_FAILURE);
-        }
-        //FIXME: The 1st word should only contain the command name, not the command name with full path
-        int i_;
-        for (i_=0;i_<chain->args;i_++) {
-            argv[i_] = malloc((strlen(chain->words[i_]) + 1) * sizeof(char));
-            if (argv[i_] == NULL) {
-                perror("Error allocating argv string");
+    int nCmd;
+    int fds[2];
+    int thisIn=-1, thisOut=-1, nextIn=-1;
+    int childpid;
+
+    for (nCmd = chainlength; nCmd <= chainlength; nCmd++) {
+        if (nCmd < chainlength) {
+            if (pipe(fds) != 0) {
+                perror("Creating pipe failed");
+                //FIXME: Do not exit the shell
                 exit(EXIT_FAILURE);
             }
-            strcpy(argv[i_], chain->words[i_]);
-        }
-        argv[chain->args] = NULL;
-        execve(chain->words[0], argv, environ);
-        //we are still here - unable to start command - error handling
-        fprintf(stderr, "Error executing external call:%s:Error:%s\n", chain->words[0], strerror(errno));
-        exit(EXIT_FAILURE);
-    } else if (childcall > 0) {
-        int callstat = 0;
-        pid_t r = waitpid(childcall, &callstat, 0);
-        if (r > 0) {
-            if (WIFEXITED(callstat)) {
-                return WEXITSTATUS(callstat);
-            } else {
-                fprintf(stderr, "Process got signal:%d\n", WTERMSIG(callstat));
-                return -1;
-            }
+            nextIn = fds[0];
+            thisOut = fds[1];
         } else {
-            fprintf(stderr, "Wait for caller terminated unexpectedly\n");
+            thisOut = -1;
+            nextIn = -1;
+        }
+        //maybe we should search for the command before forking at all
+        childpid = fork();
+        if ((childpid = fork()) == 0) {
+            if (nextIn >= 0) {
+                close(nextIn);
+            }
+            if (thisIn >= 0) {
+                close(0);
+                dup(thisIn);
+            }
+            if (thisOut >= 0) {
+                close(1);
+                dup(thisOut);
+            }
+            //do further redirections of command, check case where we redirect before piping (e.g. 2>&1 | less)
+            //handling of commands, search command in path, etc
+            char **argv;
+            argv = (char **) malloc((chain[nCmd].args + 2) * sizeof(char *));
+            if (argv == NULL) {
+                perror("Error allocating argv");
+                exit(EXIT_FAILURE);
+            }
+            //FIXME: The 1st word should only contain the command name, not the command name with full path
+            int i_;
+            for (i_=0;i_<chain[nCmd].args;i_++) {
+                argv[i_] = malloc((strlen(chain[nCmd].words[i_]) + 1) * sizeof(char));
+                if (argv[i_] == NULL) {
+                    perror("Error allocating argv string");
+                    exit(EXIT_FAILURE);
+                }
+                strcpy(argv[i_], chain[nCmd].words[i_]);
+            }
+            argv[chain[nCmd].args] = NULL;
+            execve(chain[nCmd].words[0], argv, environ);
+            //we are still here - unable to start command - error handling
+            fprintf(stderr, "Error executing external call:%s:Error:%s\n", chain->words[0], strerror(errno));
+            exit(EXIT_FAILURE);
+        } else if (childpid > 0) {
+            //FIXME: Maintain some information about this process so we can lookup it later
+            thisIn = nextIn;
+        } else {
+            perror("Cannot fork");
+            //FIXME: We may already have started a processes. What shall we do in this case?
+            //Yes, leave the loop for sure. Further on we should close all file descriptors we have created with pipe()
+            return -1;
+        }
+
+    }
+    int callstat = 0;
+    pid_t r = waitpid(childpid, &callstat, 0);
+    if (r > 0) {
+        if (WIFEXITED(callstat)) {
+            return WEXITSTATUS(callstat);
+        } else {
+            fprintf(stderr, "Process got signal:%d\n", WTERMSIG(callstat));
             return -1;
         }
     } else {
-        fprintf(stderr, "Fork failed in start job\n");
+        fprintf(stderr, "Wait for caller terminated unexpectedly\n");
         return -1;
     }
+
 }
