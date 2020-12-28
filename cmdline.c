@@ -1,9 +1,5 @@
 /**
     FIXME: 1st word for call should not contain full path to command, but only command (currently e.g. /bin/ls instead of ls)
-    FIXME: file descriptors messed up in pipe. Shell input becomes input of last command, not 1st command.
-           Try /bin/ls | /bin/cat. Afterwards, you are just typing into /bin/cat. ^D ends that and the terminal input is
-           again picked by the shell and I can run a command again. But I am not able to terminate the shell any more with
-           ^D then. I need another ^D, so maybe I always end of with terminal associated with last commands input.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -119,7 +115,7 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
 //fprintf(stderr, "Character:%c.\n", *pos);
         switch (state) {
             case PARSE_WHITESPACE:
-                if (isIn(*pos, whiteSpace)) { 
+                if (isIn(*pos, whiteSpace)) {
                     ; //ignore only, nothing to do
                 } else if (isIn(*pos, commandChars)) {
                     //either a new command line starts, or a new word in the current command line
@@ -313,13 +309,16 @@ int cmd_runPipe(struct cmd_chainlink *chain, int chainlength) {
     int thisIn=-1, thisOut=-1, nextIn=-1;
     int childpid;
 
-    for (nCmd = chainlength; nCmd <= chainlength; nCmd++) {
+fprintf(stderr, "Run pipe, number of simple commands:%d\n", chainlength + 1);
+    for (nCmd = 0; nCmd <= chainlength; nCmd++) {
+//fprintf(stderr, "Command %d:'%s'\n", nCmd, chain[nCmd].words[0]);
         if (nCmd < chainlength) {
             if (pipe(fds) != 0) {
                 perror("Creating pipe failed");
                 //FIXME: Do not exit the shell
                 exit(EXIT_FAILURE);
             }
+//fprintf(stderr, "Pipe create, read fd=%d, write fd=%d\n", fds[0], fds[1]);
             nextIn = fds[0];
             thisOut = fds[1];
         } else {
@@ -327,7 +326,6 @@ int cmd_runPipe(struct cmd_chainlink *chain, int chainlength) {
             nextIn = -1;
         }
         //maybe we should search for the command before forking at all
-        childpid = fork();
         if ((childpid = fork()) == 0) {
             if (nextIn >= 0) {
                 close(nextIn);
@@ -365,6 +363,14 @@ int cmd_runPipe(struct cmd_chainlink *chain, int chainlength) {
             exit(EXIT_FAILURE);
         } else if (childpid > 0) {
             //FIXME: Maintain some information about this process so we can lookup it later
+            if (thisOut >= 0) {
+//fprintf(stderr, "Close fd %d in shell\n", thisOut);
+                close(thisOut);
+            }
+            if (thisIn >= 0) {
+//fprintf(stderr, "Close fd %d in shell\n", thisIn);
+                close(thisIn);
+            }
             thisIn = nextIn;
         } else {
             perror("Cannot fork");
@@ -374,8 +380,10 @@ int cmd_runPipe(struct cmd_chainlink *chain, int chainlength) {
         }
 
     }
+//fprintf(stderr, "Wait for last command to terminate\n");
     int callstat = 0;
     pid_t r = waitpid(childpid, &callstat, 0);
+//fprintf(stderr, "Last command exited\n");
     if (r > 0) {
         if (WIFEXITED(callstat)) {
             return WEXITSTATUS(callstat);
