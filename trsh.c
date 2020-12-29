@@ -9,7 +9,7 @@ int main(int argc, char *argv[]) {
     int i, j;
     while((linesize=getline(&line, &linecap, stdin)) > 0) {
 //fprintf(stderr, "Sheel loop: Parse line...:%s.\n",line);
-        struct cmd_chainlink *multiCmd;
+        struct cmd_simpleCmd *multiCmd;
         int numCmd = cmd_parse(line, &multiCmd);
         if (numCmd < 0) {
             fprintf(stderr, "Error parsing command\n");
@@ -28,7 +28,7 @@ int main(int argc, char *argv[]) {
                 fprintf(stderr, "Continued with:%s\n", cmd_showNext(multiCmd[i].next));
             }
 //fprintf(stderr, "Free....%d\n",numCmd);
-            //find pipes and process chain by chain
+            //find pipes and process pipe by pipe
             for (i = 0; i < numCmd;) {
                 //Find end of this list of commands. Pipes must be run in once, connected.
                 //When command is not terminated with pipe, then we run it up to exactly this position.

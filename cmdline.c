@@ -1,5 +1,9 @@
 /**
     FIXME: 1st word for call should not contain full path to command, but only command (currently e.g. /bin/ls instead of ls)
+  * Error code not handled properly (-1 is used, and not made available anywhere)
+  * && and || still do not work, nor does ; or &
+  * No signal handling up to now
+  * Tests for memory leaks / memory usage still necessary
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +26,7 @@ extern char **environ;
 /**
     Display function: return descriptive string for continuation marker.
     @param code: Code how command chain is continued.
-    @type code: cmd_next (enum value from struct cmd_chainlink)
+    @type code: cmd_next (enum value from struct cmd_simpleCmd)
     @return: Descriptive string
     @rtype: const string (const char *)
  */
@@ -62,9 +66,9 @@ static int isIn(const char c, const char *list) {
 /**
   Free whole struct cmd array
  */
-void cmd_free(struct cmd_chainlink *commands, int numCmds) {
+void cmd_free(struct cmd_simpleCmd *commands, int numCmds) {
     int i, j;
-    struct cmd_chainlink* current;
+    struct cmd_simpleCmd* current;
     for (i=0, current = commands; i< numCmds; i++, current++) {
         //fprintf(stderr, "Free command %d\n", i);
         for (j=0; j < current->args; j++) {
@@ -87,12 +91,12 @@ void cmd_free(struct cmd_chainlink *commands, int numCmds) {
  @return: Number of parsed command sequences. If line is empty, then 0.
  @rtype: int
  */
-int cmd_parse(const char *line, struct cmd_chainlink **commands) {
+int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
     int numCmds = 0; //Length of command list
     int numChars = 0; //Length of currently parsed word
-    struct cmd_chainlink *result = NULL; //array with command lists
-    struct cmd_chainlink *tmpResult; //temporary helper
-    struct cmd_chainlink *actCmd = NULL; //pointer to currently handled command
+    struct cmd_simpleCmd *result = NULL; //array with command lists
+    struct cmd_simpleCmd *tmpResult; //temporary helper
+    struct cmd_simpleCmd *actCmd = NULL; //pointer to currently handled command
     char **tmpWords = NULL; //Temporary pointer for memory allocation
     char *tmpWord = NULL; //Temporary pointer for memory allocation
     //character constants
@@ -122,13 +126,13 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
                     if (numCmds == 0 || actCmd == NULL) { //FIXME; actCmd == NULL should be enough
                         //FIXME: use one block and realloc with NULL pointer in 1st alloc, same code
                         if (numCmds == 0) { //1st command ever
-                            result = (struct cmd_chainlink *) malloc(++numCmds * sizeof(struct cmd_chainlink));
+                            result = (struct cmd_simpleCmd *) malloc(++numCmds * sizeof(struct cmd_simpleCmd));
                             if (result == NULL) {
                                 errno = ENOMEM;
                                 return -1;
                             }
                         } else { //next command
-                            tmpResult = (struct cmd_chainlink *) realloc(result, ++numCmds * sizeof(struct cmd_chainlink));
+                            tmpResult = (struct cmd_simpleCmd *) realloc(result, ++numCmds * sizeof(struct cmd_simpleCmd));
                             if (tmpResult == NULL) {
                                 cmd_free(result, numCmds - 1);
                                 errno = ENOMEM;
@@ -303,16 +307,16 @@ int cmd_parse(const char *line, struct cmd_chainlink **commands) {
 /**
     Run a pipe or a simple command.
  */
-int cmd_runPipe(struct cmd_chainlink *chain, int chainlength) {
+int cmd_runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
     int nCmd;
     int fds[2];
     int thisIn=-1, thisOut=-1, nextIn=-1;
     int childpid;
 
-fprintf(stderr, "Run pipe, number of simple commands:%d\n", chainlength + 1);
-    for (nCmd = 0; nCmd <= chainlength; nCmd++) {
-//fprintf(stderr, "Command %d:'%s'\n", nCmd, chain[nCmd].words[0]);
-        if (nCmd < chainlength) {
+fprintf(stderr, "Run pipe, number of simple commands:%d\n", maxCmd + 1);
+    for (nCmd = 0; nCmd <= maxCmd; nCmd++) {
+//fprintf(stderr, "Command %d:'%s'\n", nCmd, commands[nCmd].words[0]);
+        if (nCmd < maxCmd) {
             if (pipe(fds) != 0) {
                 perror("Creating pipe failed");
                 //FIXME: Do not exit the shell
@@ -341,25 +345,25 @@ fprintf(stderr, "Run pipe, number of simple commands:%d\n", chainlength + 1);
             //do further redirections of command, check case where we redirect before piping (e.g. 2>&1 | less)
             //handling of commands, search command in path, etc
             char **argv;
-            argv = (char **) malloc((chain[nCmd].args + 2) * sizeof(char *));
+            argv = (char **) malloc((commands[nCmd].args + 2) * sizeof(char *));
             if (argv == NULL) {
                 perror("Error allocating argv");
                 exit(EXIT_FAILURE);
             }
             //FIXME: The 1st word should only contain the command name, not the command name with full path
             int i_;
-            for (i_=0;i_<chain[nCmd].args;i_++) {
-                argv[i_] = malloc((strlen(chain[nCmd].words[i_]) + 1) * sizeof(char));
+            for (i_=0;i_<commands[nCmd].args;i_++) {
+                argv[i_] = malloc((strlen(commands[nCmd].words[i_]) + 1) * sizeof(char));
                 if (argv[i_] == NULL) {
                     perror("Error allocating argv string");
                     exit(EXIT_FAILURE);
                 }
-                strcpy(argv[i_], chain[nCmd].words[i_]);
+                strcpy(argv[i_], commands[nCmd].words[i_]);
             }
-            argv[chain[nCmd].args] = NULL;
-            execve(chain[nCmd].words[0], argv, environ);
+            argv[commands[nCmd].args] = NULL;
+            execve(commands[nCmd].words[0], argv, environ);
             //we are still here - unable to start command - error handling
-            fprintf(stderr, "Error executing external call:%s:Error:%s\n", chain->words[0], strerror(errno));
+            fprintf(stderr, "Error executing external call:%s:Error:%s\n", commands[nCmd].words[0], strerror(errno));
             exit(EXIT_FAILURE);
         } else if (childpid > 0) {
             //FIXME: Maintain some information about this process so we can lookup it later
