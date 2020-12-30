@@ -4,6 +4,7 @@
   * && and || still do not work, nor does ; or &
   * No signal handling up to now
   * Tests for memory leaks / memory usage still necessary
+  * Error handling when one of the commands does not exist / exec fails - is this correct currently?
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +13,7 @@
 #include <sys/wait.h>
 #include <stdio.h>
 #include <string.h>
+#include <limits.h>
 #include "cmdline.h"
 
 #define PARSE_UNKNOWN 0
@@ -21,7 +23,6 @@
 #define PARSE_BGROUND 4
 
 extern char **environ;
-
 
 /**
     Display function: return descriptive string for continuation marker.
@@ -61,6 +62,118 @@ static int isIn(const char c, const char *list) {
     if (list == NULL) return 0;
     for (p = list; *p != c && *p != '\0'; p++);
     return *p != '\0';
+}
+
+/**
+ Pick a given command and find out if it is with path or not.
+ If without path, search command in environment variable PATH.
+ If PATH is not set, default to a minimum of /bin:/usr/bin.
+ If PATH is set to empty string, do not use a default PATH instead.
+ This is the default behaviour, documented with Minix, checked with
+ Darwin (BSD) and Solaris. Linux behaves differently, either empty
+ or unset PATH does a search in the current directory. This is
+ stupid behaviour.
+ When found, check whether file is executable.
+ @param cmd: The command string to analyse
+ @type cmd: const char *
+ @param name: Put shortname for this command here
+ @type name: const char ** (address of a char * string)
+ @param path: Put full path to this command here
+ @type path: const char ** (address of a char* string)
+ @return: 0 for error, else for successful
+ @rtype: int
+ */
+static int findCommand(const char *cmd, char **name, char **path) {
+    if (cmd == NULL || name == NULL || path == NULL || cmd[0] == '\0') {
+        fprintf(stderr, "Internal error: Null pointer given for command or empty command:%s%s%s\n",
+            cmd == NULL ? "cmd," : ",", name == NULL ? "name," : ",", path == NULL ? "path" : "");
+        return 0;
+    }
+    if (strnlen(cmd, PATH_MAX + 1) > PATH_MAX) {
+        fprintf(stderr, "Command too long or not properly terminated\n");
+        return 0;
+    }
+    size_t cmdLen = strlen(cmd);
+    char *last = strrchr(cmd, '/');
+    if (last == NULL) { //internal command or command without path
+        *name = (char *) malloc((cmdLen + 1) * sizeof(char));
+        if (*name == NULL) {
+            perror("Cannot allocate memory for command name");
+            return 0;
+        }
+        strcpy(*name, cmd);
+        const char *searchPath = getenv("PATH");
+        if (searchPath == NULL) searchPath = "/bin:/usr/bin";
+        const char *start = searchPath;
+        const char *end;
+        size_t pathLen = strlen(searchPath);
+        *path = NULL;
+        //FIXME: I can read that quite well, the value of ? is not used, but || generates integer and assignment generates pointer
+        //This warning can be removed using nested ? operators.
+        for (start = searchPath, (end = strchr(start, ':')) || (end = pathLen > 0 ? searchPath + pathLen : NULL);
+                end != NULL;
+                start = end + 1, start <= searchPath + pathLen ? (end = strchr(start, ':')) || (end = searchPath + pathLen) : (end = NULL)) {
+            if (start == end) { //Special case, empty path component means current directory
+                *path = (char *) malloc((cmdLen + 3) * sizeof(char));
+                if (*path == NULL) {
+                    perror("Cannot allocate memory for search path");
+                    free(*name);
+                    return 0;
+                }
+                strcpy(*path, "./");
+                strcpy(*path + 2, cmd);
+            } else {
+                size_t thisPathLen = end - start;
+                //guide against overflow, check twice
+                if (thisPathLen > PATH_MAX || thisPathLen + cmdLen + 2 > PATH_MAX) {
+                    //FIXME: Debug only output that we skip this
+                    continue;
+                }
+                *path = (char *) malloc((thisPathLen + strlen(cmd) + 2) * sizeof(char));
+                if (*path == NULL) {
+                    perror("Cannot allocate memory for search path");
+                    free(*name);
+                    return 0;
+                }
+                strncpy(*path, start, thisPathLen);
+                strcpy(*path + thisPathLen, "/");
+                strcpy(*path + thisPathLen + 1, cmd);
+            }
+            if (access(*path, F_OK) == 0) {
+                break;
+            } else {
+                free(*path);
+                *path = NULL;
+            }
+        }
+        if (*path == NULL) free(*name);
+    } else {
+        if (last[1] == '\0') {
+            fprintf(stderr, "Empty command:%s\n", cmd);
+            return 0;
+        }
+        *name = (char *) malloc((strlen(last + 1) + 1) * sizeof(char));
+        if (*name == NULL) {
+            perror("Cannot allocate memory for command name");
+            return 0;
+        }
+        strcpy(*name, last + 1);
+        *path = (char *) malloc((strlen(cmd) + 1) * sizeof(char));
+        if (*path == NULL) {
+            perror("Cannot allocate memory for command path");
+            free(*name);
+            return 0;
+        }
+        strcpy(*path, cmd);
+    }
+    if (*path == NULL) return 0;
+    if (access(*path, X_OK) == 0) {
+        return 1;
+    } else {
+        free(*name);
+        free(*path);
+        return 0;
+    }
 }
 
 /**
@@ -312,6 +425,7 @@ int cmd_runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
     int fds[2];
     int thisIn=-1, thisOut=-1, nextIn=-1;
     int childpid;
+    int i;
 
 fprintf(stderr, "Run pipe, number of simple commands:%d\n", maxCmd + 1);
     for (nCmd = 0; nCmd <= maxCmd; nCmd++) {
@@ -350,18 +464,22 @@ fprintf(stderr, "Run pipe, number of simple commands:%d\n", maxCmd + 1);
                 perror("Error allocating argv");
                 exit(EXIT_FAILURE);
             }
-            //FIXME: The 1st word should only contain the command name, not the command name with full path
-            int i_;
-            for (i_=0;i_<commands[nCmd].args;i_++) {
-                argv[i_] = malloc((strlen(commands[nCmd].words[i_]) + 1) * sizeof(char));
-                if (argv[i_] == NULL) {
+            char *cmdName, *cmdPath;
+            if (!findCommand(commands[nCmd].words[0], &cmdName, &cmdPath)) {
+                fprintf(stderr, "Cannot find command:%s\n", commands[nCmd].words[0]);
+                exit(EXIT_FAILURE);
+            }
+            argv[0] = cmdName;
+            for (i=1;i<commands[nCmd].args;i++) {
+                argv[i] = malloc((strlen(commands[nCmd].words[i]) + 1) * sizeof(char));
+                if (argv[i] == NULL) {
                     perror("Error allocating argv string");
                     exit(EXIT_FAILURE);
                 }
-                strcpy(argv[i_], commands[nCmd].words[i_]);
+                strcpy(argv[i], commands[nCmd].words[i]);
             }
             argv[commands[nCmd].args] = NULL;
-            execve(commands[nCmd].words[0], argv, environ);
+            execve(cmdPath, argv, environ);
             //we are still here - unable to start command - error handling
             fprintf(stderr, "Error executing external call:%s:Error:%s\n", commands[nCmd].words[0], strerror(errno));
             exit(EXIT_FAILURE);
