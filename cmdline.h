@@ -1,3 +1,5 @@
+#ifndef CMDLINE_H
+#define CMDLINE_H
 /** Header file for commmand line parser */
 enum cmd_next {
     CMD_TERMINATED = 0,
@@ -18,3 +20,5 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands);
 const char* cmd_showNext(enum cmd_next code);
 void cmd_free(struct cmd_simpleCmd *commands, int numCmds);
 int cmd_runPipe(struct cmd_simpleCmd*, int maxCmd);
+
+#endif /* CMDLINE_H */
