@@ -39,7 +39,11 @@ static void init(int argc, char *argv[]) {
         trsh_status.sigINT.sa_mask = 0;
         trsh_status.sigINT.sa_handler = sigHandler;
         if (sigaction(SIGINT, &trsh_status.sigINT, &trsh_status.sigINTsave) != 0) {
-            perror("Cannot install initial signal handler");
+            perror("Cannot install initial signal handler (SIGINT)");
+            _exit(1);
+        }
+        if (sigaction(SIGQUIT, &trsh_status.sigINT, &trsh_status.sigQUITsave) != 0) {
+            perror("Cannot install initial signal handler (SIGQUIT)");
             _exit(1);
         }
     }
@@ -74,7 +78,6 @@ int main(int argc, char *argv[]) {
         int numCmd = cmd_parse(line, &multiCmd);
         if (numCmd < 0) {
             fprintf(stderr, "Error parsing command\n");
-            //FIXME: the last command status shall be returned, not if any parse did fail
             status = 1;
         } else if (numCmd == 0) {
 //fprintf(stderr, "Ignore empty line\n");
@@ -95,7 +98,9 @@ int main(int argc, char *argv[]) {
                 //When command is not terminated with pipe, then we run it up to exactly this position.
                 //j is the position of the last command to be run together with this command
                 for (j = i; multiCmd[j].next == CMD_PIPE; j++); //FIXME: If parser fails checking command ending with pipe, overflow!
-                cmd_runPipe(multiCmd + i, j - i);
+                status = cmd_runPipe(multiCmd + i, j - i);
+fprintf(stderr, "Return code:%d\n", status);
+                //FIXME: Now base decision for next command on return code
                 i = j + 1;
             }
             cmd_free(multiCmd, numCmd);

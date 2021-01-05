@@ -515,12 +515,26 @@ fprintf(stderr, "Run pipe, number of simple commands:%d\n", maxCmd + 1);
         if (WIFEXITED(callstat)) {
             return WEXITSTATUS(callstat);
         } else {
-            fprintf(stderr, "Process got signal:%d\n", WTERMSIG(callstat));
+            return 128 | WTERMSIG(callstat);
+        }
+    } else { //FIXME: This is a temporary hack
+        if (errno == EINTR) { //Signal does interrupt waitpid. It may be better to do this in signal handler, where waitpid
+                              //is not interrupted
+            errno = 0;
+            r = waitpid(childpid, &callstat, 0);
+            if (r > 0) {
+                if (WIFEXITED(callstat)) {
+                    return WEXITSTATUS(callstat);
+                } else {
+                    return 128 | WTERMSIG(callstat);
+                }
+            } else {
+                perror("Error in second waitpid. This should not happen");
+                return -1;
+            }
+        } else {
+            perror("Error waiting for result");
             return -1;
         }
-    } else {
-        fprintf(stderr, "Wait for caller terminated unexpectedly\n");
-        return -1;
     }
-
 }
