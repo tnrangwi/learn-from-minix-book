@@ -8,7 +8,7 @@ struct trsh_stat trsh_status;
 
 static void sigHandler(int sig) {
     //FIXME: This should do something: Wait for all currently running processes terminating
-    fprintf(stderr, "Signal caught:%d\n", sig);
+    fprintf(stdout, "\n", sig);
 }
 
 static void init() {

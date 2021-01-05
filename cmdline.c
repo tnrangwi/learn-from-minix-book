@@ -213,7 +213,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
     char **tmpWords = NULL; //Temporary pointer for memory allocation
     char *tmpWord = NULL; //Temporary pointer for memory allocation
     //character constants
-    const char *commandChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567_-@.,=/";
+    const char *commandChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567_-@.,=/#";
     const char *whiteSpace = " \t\r";
     const char *pos; //looper through command line
     const int initBufsize = 32;
@@ -234,9 +234,14 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
             case PARSE_WHITESPACE:
                 if (isIn(*pos, whiteSpace)) {
                     ; //ignore only, nothing to do
+                } else if (actCmd == NULL &&  *pos == '#') {
+                    if (numCmds > 0) {
+                        cmd_free(result, numCmds);
+                    }
+                    return 0;
                 } else if (isIn(*pos, commandChars)) {
-                    //either a new command line starts, or a new word in the current command line
-                    if (numCmds == 0 || actCmd == NULL) { //FIXME; actCmd == NULL should be enough
+                //either a new command line starts, or a new word in the current command line
+                    if (actCmd == NULL) {
                         //FIXME: use one block and realloc with NULL pointer in 1st alloc, same code
                         if (numCmds == 0) { //1st command ever
                             result = (struct cmd_simpleCmd *) malloc(++numCmds * sizeof(struct cmd_simpleCmd));
