@@ -5,6 +5,8 @@
 
 struct trsh_stat {
     int interactive; // whether shell is interactive
+    const char *prog; //argv[0]
+    const char *script; //If arguments given - the name of the script we execute
     struct sigaction sigINTsave; // original signal handler for SIGINT
     struct sigaction sigINT; // Signal handler of the shell
 } ;
