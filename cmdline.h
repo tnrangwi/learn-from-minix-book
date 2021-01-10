@@ -19,6 +19,5 @@ struct cmd_simpleCmd {
 int cmd_parse(const char *line, struct cmd_simpleCmd **commands);
 const char* cmd_showNext(enum cmd_next code);
 void cmd_free(struct cmd_simpleCmd *commands, int numCmds);
-int cmd_runPipe(struct cmd_simpleCmd*, int maxCmd);
 
 #endif /* CMDLINE_H */
