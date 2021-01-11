@@ -17,6 +17,25 @@ static void sigHandler(int sig) {
     fprintf(stdout, "\n");
 }
 
+static int iCd(int, char *[]);
+static int iExport(int, char *[]);
+const char *shlFunc[] = { "cd", "export" };
+
+int (*shlCall[])(int, char *[]) = {
+    iCd,
+    iExport
+};
+
+static int iCd(int argc, char *argv[]) {
+    return 0;
+}
+
+static int iExport(int argc, char *argv[]) {
+    return 0;
+}
+
+static int srchString(char **s1, char **s2) { return strcmp(*s1, *s2); }
+
 /**
  Pick a given command and find out if it is with path or not.
  If without path, search command in environment variable PATH.
@@ -55,6 +74,11 @@ static int findCommand(const char *cmd, char **name, char **path) {
             return 0;
         }
         strcpy(*name, cmd);
+        const char **intCmd = (const char **) bsearch((void *) name, (void *) shlFunc, sizeof(shlFunc) / sizeof(shlFunc[0]),
+                                sizeof(char *), (int (*)(const void *, const void *)) srchString);
+        if (intCmd != NULL) {
+            fprintf(stderr, "Internal command:%s, num %d\n", *name, intCmd - shlFunc);
+        }
         const char *searchPath = getenv("PATH");
         if (searchPath == NULL) searchPath = "/bin:/usr/bin";
         const char *start = searchPath;
