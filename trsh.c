@@ -27,7 +27,21 @@ int (*shlCall[])(int, char *[]) = {
 };
 
 static int iCd(int argc, char *argv[]) {
-    return 0;
+    const char *dir;
+    if (argc == 0) {
+        dir = getenv("HOME");
+        if (dir == NULL) {
+            fprintf(stderr, "HOME is not set\n");
+            return 1;
+        }
+    } else {
+        dir = argv[0];
+    }
+    if (chdir(dir) == 0) {
+        return 0;
+    }
+    fprintf(stderr, "Cannot chdir to %s:%s\n", dir, strerror(errno));
+    return 1;
 }
 
 static int iExport(int argc, char *argv[]) {
@@ -48,54 +62,55 @@ static int srchString(char **s1, char **s2) { return strcmp(*s1, *s2); }
  When found, check whether file is executable.
  @param cmd: The command string to analyse
  @type cmd: const char *
- @param name: Put shortname for this command here
+ @param name: Put shortname for this command here or NULL if command is internal.
  @type name: const char ** (address of a char * string)
- @param path: Put full path to this command here
+ @param path: Put full path to this command here or NULL if it is an internal command
  @type path: const char ** (address of a char* string)
- @return: 0 for error, else for successful
+ @return: greater zero if if OK, negative on error. Number of the internal command on internal command.
  @rtype: int
  */
 static int findCommand(const char *cmd, char **name, char **path) {
     if (cmd == NULL || name == NULL || path == NULL || cmd[0] == '\0') {
         fprintf(stderr, "Internal error: Null pointer given for command or empty command:%s%s%s\n",
             cmd == NULL ? "cmd," : ",", name == NULL ? "name," : ",", path == NULL ? "path" : "");
-        return 0;
+        return -1;
     }
     if (strnlen(cmd, PATH_MAX + 1) > PATH_MAX) {
         fprintf(stderr, "Command too long or not properly terminated\n");
-        return 0;
+        return -1;
     }
     size_t cmdLen = strlen(cmd);
     char *last = strrchr(cmd, '/');
     if (last == NULL) { //internal command or command without path
+        const char **intCmd = (const char **) bsearch((void *) &cmd, (void *) shlFunc, sizeof(shlFunc) / sizeof(shlFunc[0]),
+                                sizeof(char *), (int (*)(const void *, const void *)) srchString);
+        if (intCmd != NULL) {
+            *name = NULL;
+            *path = NULL;
+            return (int) (intCmd - shlFunc);
+        }
         *name = (char *) malloc((cmdLen + 1) * sizeof(char));
         if (*name == NULL) {
             perror("Cannot allocate memory for command name");
-            return 0;
+            return -1;
         }
         strcpy(*name, cmd);
-        const char **intCmd = (const char **) bsearch((void *) name, (void *) shlFunc, sizeof(shlFunc) / sizeof(shlFunc[0]),
-                                sizeof(char *), (int (*)(const void *, const void *)) srchString);
-        if (intCmd != NULL) {
-            fprintf(stderr, "Internal command:%s, num %d\n", *name, intCmd - shlFunc);
-        }
         const char *searchPath = getenv("PATH");
         if (searchPath == NULL) searchPath = "/bin:/usr/bin";
         const char *start = searchPath;
         const char *end;
         size_t pathLen = strlen(searchPath);
         *path = NULL;
-        //FIXME: I can read that quite well, the value of ? is not used, but || generates integer and assignment generates pointer
-        //This warning can be removed using nested ? operators.
         for (start = searchPath, (end = strchr(start, ':')) || (end = pathLen > 0 ? searchPath + pathLen : NULL);
                 end != NULL;
-                start = end + 1, start <= searchPath + pathLen ? (end = strchr(start, ':')) || (end = searchPath + pathLen) : (end = NULL)) {
+                //? operator used for side effects only, cast to (int) to make compiler happy
+                start=end+1, start <= searchPath+pathLen ? (end=strchr(start, ':')) || (end = searchPath+pathLen) : (int) (end=NULL)) {
             if (start == end) { //Special case, empty path component means current directory
                 *path = (char *) malloc((cmdLen + 3) * sizeof(char));
                 if (*path == NULL) {
                     perror("Cannot allocate memory for search path");
                     free(*name);
-                    return 0;
+                    return -1;
                 }
                 strcpy(*path, "./");
                 strcpy(*path + 2, cmd);
@@ -110,7 +125,7 @@ static int findCommand(const char *cmd, char **name, char **path) {
                 if (*path == NULL) {
                     perror("Cannot allocate memory for search path");
                     free(*name);
-                    return 0;
+                    return -1;
                 }
                 strncpy(*path, start, thisPathLen);
                 strcpy(*path + thisPathLen, "/");
@@ -127,29 +142,29 @@ static int findCommand(const char *cmd, char **name, char **path) {
     } else {
         if (last[1] == '\0') {
             fprintf(stderr, "Empty command:%s\n", cmd);
-            return 0;
+            return -1;
         }
         *name = (char *) malloc((strlen(last + 1) + 1) * sizeof(char));
         if (*name == NULL) {
             perror("Cannot allocate memory for command name");
-            return 0;
+            return -1;
         }
         strcpy(*name, last + 1);
         *path = (char *) malloc((strlen(cmd) + 1) * sizeof(char));
         if (*path == NULL) {
             perror("Cannot allocate memory for command path");
             free(*name);
-            return 0;
+            return -1;
         }
         strcpy(*path, cmd);
     }
     if (*path == NULL) return 0;
     if (access(*path, X_OK) == 0) {
-        return 1;
+        return INT_MAX;
     } else {
         free(*name);
         free(*path);
-        return 0;
+        return -1;
     }
 }
 
@@ -166,6 +181,12 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
 fprintf(stderr, "Run pipe, number of simple commands:%d\n", maxCmd + 1);
     for (nCmd = 0; nCmd <= maxCmd; nCmd++) {
 //fprintf(stderr, "Command %d:'%s'\n", nCmd, commands[nCmd].words[0]);
+        char *cmdName = NULL, *cmdPath = NULL;
+        int cmdCode;
+        cmdCode = findCommand(commands[nCmd].words[0], &cmdName, &cmdPath);
+        if (maxCmd == 0 && cmdCode >= 0 && cmdCode < INT_MAX) { //Exactly one internal command
+            return (*shlCall)(commands[0].args - 1, commands[0].args > 0 ? commands[0].words + 1 : NULL);
+        }
         if (nCmd < maxCmd) {
             if (pipe(fds) != 0) {
                 perror("Creating pipe failed");
@@ -179,7 +200,6 @@ fprintf(stderr, "Run pipe, number of simple commands:%d\n", maxCmd + 1);
             thisOut = -1;
             nextIn = -1;
         }
-        //maybe we should search for the command before forking at all
         if ((childpid = fork()) == 0) {
             if (nextIn >= 0) {
                 close(nextIn);
@@ -194,15 +214,20 @@ fprintf(stderr, "Run pipe, number of simple commands:%d\n", maxCmd + 1);
             }
             //do further redirections of command, check case where we redirect before piping (e.g. 2>&1 | less)
             //handling of commands, search command in path, etc
+            if (cmdCode < 0) {
+                fprintf(stderr, "Cannot find command:%s\n", commands[nCmd].words[0]);
+                exit(EXIT_FAILURE);
+            } else if (cmdCode != INT_MAX) {
+                fprintf(stderr, "Internal command not supported in pipe yet\n");
+                exit(EXIT_FAILURE);
+            }  else if (cmdName == NULL || cmdPath == NULL) {
+                fprintf(stderr, "Internal error - one of the command pointers is NULL\n");
+                exit(EXIT_FAILURE);
+            }
             char **argv;
             argv = (char **) malloc((commands[nCmd].args + 2) * sizeof(char *));
             if (argv == NULL) {
                 perror("Error allocating argv");
-                exit(EXIT_FAILURE);
-            }
-            char *cmdName, *cmdPath;
-            if (!findCommand(commands[nCmd].words[0], &cmdName, &cmdPath)) {
-                fprintf(stderr, "Cannot find command:%s\n", commands[nCmd].words[0]);
                 exit(EXIT_FAILURE);
             }
             argv[0] = cmdName;
