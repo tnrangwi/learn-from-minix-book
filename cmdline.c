@@ -1,8 +1,12 @@
 /**
-    FIXME: 1st word for call should not contain full path to command, but only command (currently e.g. /bin/ls instead of ls)
-  * Error code not handled properly (-1 is used, and not made available anywhere)
-  * && and || still do not work, nor does ; or &
-  * No signal handling up to now
+  FIXME
+  * Implement some logger to use and suppress all debug output
+  * & does not work yet
+  * Signal handling incomplete. Should handle SIGHUP properly, handle SIGCHLD to maintain process list, SIGSTP while running process.
+  * Implement fg / bg for job control. Goes hand in hand with changes in signal handling.
+  * Implement at least ``
+  * Implement redirections
+  * Implement shell variables and export, especially setting variables for external calls
   * Tests for memory leaks / memory usage still necessary
   * Error handling when one of the commands does not exist / exec fails - is this correct currently?
  */
@@ -35,6 +39,7 @@ const char* cmd_showNext(enum cmd_next code) {
         case CMD_BGROUND: return "&";
         case CMD_TRUE: return "&&";
         case CMD_FALSE: return "||";
+        case CMD_SEP: return ";";
         case CMD_UNSET: return "<unset continuation, implementation error>";
         default:
             fprintf(stderr, "Received unimplemented continuation code:%d - implementation error\n", code);
@@ -98,7 +103,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
     char **tmpWords = NULL; //Temporary pointer for memory allocation
     char *tmpWord = NULL; //Temporary pointer for memory allocation
     //character constants
-    const char *commandChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567_-@.,=/#";
+    const char *commandChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-@.,=/#:";
     const char *whiteSpace = " \t\r";
     const char *pos; //looper through command line
     const int initBufsize = 32;
@@ -194,6 +199,15 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                         return -2;
                     }
                     state = PARSE_BGROUND;
+                } else if(*pos == ';') {
+                    if (actCmd == NULL) {
+                        cmd_free(result, numCmds);
+                        fprintf(stderr, "Got ; without command\n");
+                        return -2;
+                    }
+                    actCmd->next = CMD_SEP;
+                    state = PARSE_WHITESPACE;
+                    actCmd = NULL;
                 } else {
                     cmd_free(result, numCmds);
                     fprintf(stderr, "Got %c while parsing white space - unexpected\n", *pos);

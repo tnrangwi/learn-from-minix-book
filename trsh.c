@@ -8,6 +8,10 @@
 #include "cmdline.h"
 #include "trsh.h"
 
+#define RUN_ALWAYS 0
+#define RUN_IF_OK 1
+#define RUN_IF_ERROR 2
+
 struct trsh_stat trsh_status;
 
 extern char **environ;
@@ -19,12 +23,16 @@ static void sigHandler(int sig) {
 
 static int iCd(int, char *[]);
 static int iExport(int, char *[]);
-const char *shlFunc[] = { "cd", "export" };
+static int iNop(int, char*[]);
+const char *shlFunc[] = { ":", "cd", "export" };
 
-int (*shlCall[])(int, char *[]) = {
+static int (*shlCall[])(int, char *[]) = {
+    iNop,
     iCd,
     iExport
 };
+
+static int iNop(int argc, char *argv[]) { return 0; }
 
 static int iCd(int argc, char *argv[]) {
     const char *dir;
@@ -178,7 +186,7 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
     int childpid;
     int i;
 
-fprintf(stderr, "Run pipe, number of simple commands:%d\n", maxCmd + 1);
+    //fprintf(stderr, "Run pipe, number of simple commands:%d\n", maxCmd + 1);
     for (nCmd = 0; nCmd <= maxCmd; nCmd++) {
 //fprintf(stderr, "Command %d:'%s'\n", nCmd, commands[nCmd].words[0]);
         char *cmdName = NULL, *cmdPath = NULL;
@@ -368,22 +376,31 @@ int main(int argc, char *argv[]) {
         } else {
 //fprintf(stderr, "Num commands:%d\n", numCmd);
             for (i=0; i < numCmd;i++) {
-                fprintf(stderr, "Command:%s, words%d\n", multiCmd[i].words[0], multiCmd[i].args);
+                //fprintf(stderr, "Command:%s, words%d\n", multiCmd[i].words[0], multiCmd[i].args);
                 for (j=1; j < multiCmd[i].args; j++) {
-                    fprintf(stderr, "arg %d:%s.\n", j, multiCmd[i].words[j]);
+                    //fprintf(stderr, "arg %d:%s.\n", j, multiCmd[i].words[j]);
                 }
-                fprintf(stderr, "Continued with:%s\n", cmd_showNext(multiCmd[i].next));
+                //fprintf(stderr, "Continued with:%s\n", cmd_showNext(multiCmd[i].next));
             }
 //fprintf(stderr, "Free....%d\n",numCmd);
             //find pipes and process pipe by pipe
+            int runNext = RUN_ALWAYS;;
             for (i = 0; i < numCmd;) {
                 //Find end of this list of commands. Pipes must be run in once, connected.
                 //When command is not terminated with pipe, then we run it up to exactly this position.
                 //j is the position of the last command to be run together with this command
                 for (j = i; multiCmd[j].next == CMD_PIPE; j++); //FIXME: If parser fails checking command ending with pipe, overflow!
-                status = runPipe(multiCmd + i, j - i);
-fprintf(stderr, "Return code:%d\n", status);
-                //FIXME: Now base decision for next command on return code
+                if (runNext == RUN_ALWAYS || status == 0 && runNext == RUN_IF_OK || status != 0 && runNext == RUN_IF_ERROR) {
+                    status = runPipe(multiCmd + i, j - i);
+                    //fprintf(stderr, "Return code:%d\n", status);
+                }
+                if (multiCmd[j].next == CMD_TRUE) {
+                    runNext = RUN_IF_OK;
+                } else if (multiCmd[j].next == CMD_FALSE) {
+                    runNext = RUN_IF_ERROR;
+                } else {
+                    runNext = RUN_ALWAYS;
+                }
                 i = j + 1;
             }
             cmd_free(multiCmd, numCmd);

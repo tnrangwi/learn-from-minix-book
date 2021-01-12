@@ -7,6 +7,7 @@ enum cmd_next {
     CMD_BGROUND = 2,
     CMD_TRUE = 3,
     CMD_FALSE = 4,
+    CMD_SEP = 5,
     CMD_UNSET = 255
 } ;
 
