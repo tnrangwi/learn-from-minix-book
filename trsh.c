@@ -7,6 +7,7 @@
 #include <limits.h>
 #include "cmdline.h"
 #include "trsh.h"
+#include "log.h"
 
 #define RUN_ALWAYS 0
 #define RUN_IF_OK 1
@@ -186,9 +187,9 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
     int childpid;
     int i;
 
-    //fprintf(stderr, "Run pipe, number of simple commands:%d\n", maxCmd + 1);
+    log_out(1, "Run pipe, number of simple commands:%d\n", maxCmd + 1);
     for (nCmd = 0; nCmd <= maxCmd; nCmd++) {
-//fprintf(stderr, "Command %d:'%s'\n", nCmd, commands[nCmd].words[0]);
+        log_out(1, "Command %d:'%s'\n", nCmd, commands[nCmd].words[0]);
         char *cmdName = NULL, *cmdPath = NULL;
         int cmdCode;
         cmdCode = findCommand(commands[nCmd].words[0], &cmdName, &cmdPath);
@@ -201,7 +202,7 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
                 //FIXME: Do not exit the shell
                 exit(EXIT_FAILURE);
             }
-//fprintf(stderr, "Pipe create, read fd=%d, write fd=%d\n", fds[0], fds[1]);
+            log_out(3, "Pipe create, read fd=%d, write fd=%d\n", fds[0], fds[1]);
             nextIn = fds[0];
             thisOut = fds[1];
         } else {
@@ -255,11 +256,11 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
         } else if (childpid > 0) {
             //FIXME: Maintain some information about this process so we can lookup it later
             if (thisOut >= 0) {
-//fprintf(stderr, "Close fd %d in shell\n", thisOut);
+                log_out(3, "Close fd %d in shell\n", thisOut);
                 close(thisOut);
             }
             if (thisIn >= 0) {
-//fprintf(stderr, "Close fd %d in shell\n", thisIn);
+                log_out(3, "Close fd %d in shell\n", thisIn);
                 close(thisIn);
             }
             thisIn = nextIn;
@@ -271,10 +272,10 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
         }
 
     }
-//fprintf(stderr, "Wait for last command to terminate\n");
+    log_out(2, "Wait for last command to terminate\n");
     int callstat = 0;
     pid_t r = waitpid(childpid, &callstat, 0);
-//fprintf(stderr, "Last command exited\n");
+    log_out(2, "Last command exited\n");
     if (r > 0) {
         if (WIFEXITED(callstat)) {
             return WEXITSTATUS(callstat);
@@ -308,9 +309,19 @@ static void init(int argc, char *argv[]) {
     trsh_status.interactive = isatty(fileno(stdin)) && isatty(fileno(stdout));
     errno = 0; //Clear eventually set ENOTTY
     trsh_status.prog = argv[0];
-    while ((i = getopt(argc, argv, ":")) != -1) {
+    int logLevel;
+    while ((i = getopt(argc, argv, ":L:")) != -1) {
         switch (i) {
-            default: ; //Ignore all options for now
+            case 'L':
+                //FIXME: Use strtol
+                if ((logLevel = *optarg - '0') >= 0 && logLevel <= 9) {
+                    log_setLevel(logLevel);
+                } else {
+                    log_out(0, "Invalid log level:%s\n", optarg);
+                }
+                break;
+            default:
+                break;
         }
     }
     argc -= optind;
@@ -364,25 +375,24 @@ int main(int argc, char *argv[]) {
         } else if (linesize == 0) { //This is almost impossible as getline waits for at least one line. Switching to getch may need this.
             break;
         }
-//fprintf(stderr, "Sheel loop: Parse line...:%s.\n",line)
+        log_out(1, "Sheel loop: Parse line...:%s.\n", line);
         struct cmd_simpleCmd *multiCmd;
         int numCmd = cmd_parse(line, &multiCmd);
         if (numCmd < 0) {
             fprintf(stderr, "Error parsing command\n");
             status = 1;
         } else if (numCmd == 0) {
-//fprintf(stderr, "Ignore empty line\n");
+            log_out(2, "Ignore empty line\n");
             continue;
         } else {
-//fprintf(stderr, "Num commands:%d\n", numCmd);
+            log_out(1, "Num commands:%d\n", numCmd);
             for (i=0; i < numCmd;i++) {
-                //fprintf(stderr, "Command:%s, words%d\n", multiCmd[i].words[0], multiCmd[i].args);
+                log_out(1, "Command:%s, words%d\n", multiCmd[i].words[0], multiCmd[i].args);
                 for (j=1; j < multiCmd[i].args; j++) {
-                    //fprintf(stderr, "arg %d:%s.\n", j, multiCmd[i].words[j]);
+                    log_out(1, "arg %d:%s.\n", j, multiCmd[i].words[j]);
                 }
-                //fprintf(stderr, "Continued with:%s\n", cmd_showNext(multiCmd[i].next));
+                log_out(1, "Continued with:%s\n", cmd_showNext(multiCmd[i].next));
             }
-//fprintf(stderr, "Free....%d\n",numCmd);
             //find pipes and process pipe by pipe
             int runNext = RUN_ALWAYS;;
             for (i = 0; i < numCmd;) {
@@ -392,7 +402,7 @@ int main(int argc, char *argv[]) {
                 for (j = i; multiCmd[j].next == CMD_PIPE; j++); //FIXME: If parser fails checking command ending with pipe, overflow!
                 if (runNext == RUN_ALWAYS || status == 0 && runNext == RUN_IF_OK || status != 0 && runNext == RUN_IF_ERROR) {
                     status = runPipe(multiCmd + i, j - i);
-                    //fprintf(stderr, "Return code:%d\n", status);
+                    log_out(1, "Return code:%d\n", status);
                 }
                 if (multiCmd[j].next == CMD_TRUE) {
                     runNext = RUN_IF_OK;

@@ -7,7 +7,7 @@ ODIR=obj
 CC=gcc
 CFLAGS=-Wall
 
-_OBJ = trsh.o cmdline.o
+_OBJ = trsh.o cmdline.o log.o
 OBJ = $(patsubst %,$(ODIR)/%,$(_OBJ))
 
 $(ODIR)/%.o: %.c

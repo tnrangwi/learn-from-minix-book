@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "cmdline.h"
+#include "log.h"
 
 #define PARSE_UNKNOWN 0
 #define PARSE_WHITESPACE 1
@@ -73,15 +74,15 @@ void cmd_free(struct cmd_simpleCmd *commands, int numCmds) {
     int i, j;
     struct cmd_simpleCmd* current;
     for (i=0, current = commands; i< numCmds; i++, current++) {
-        //fprintf(stderr, "Free command %d\n", i);
+        log_out(2, "Free command %d\n", i);
         for (j=0; j < current->args; j++) {
-            //fprintf(stderr, "Free word %d\n", j);
+            log_out(2, "Free word %d\n", j);
             free(current->words[j]);
         }
-        //fprintf(stderr, "Free words.\n");
+        log_out(2, "Free words.\n");
         free(current->words);
     }
-    //fprintf(stderr, "Free command itself\n");
+    log_out(2, "Free command itself\n");
     free(commands);
 }
 
@@ -115,11 +116,11 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
     }
     pos = line;
     state = PARSE_WHITESPACE;
-//fprintf(stderr, "Start parsing commandline...:%s.\n",line);
+    log_out(2, "Start parsing commandline...:%s.\n",line);
 //FIXME: For use with execve, a null terminated last element is needed
 //FIXME: Several similar lines of code should be put into macro
     for (pos = line; *pos != '\0' && *pos != '\n'; pos++) {
-//fprintf(stderr, "Character:%c.\n", *pos);
+        log_out(2, "Character:%c.\n", *pos);
         switch (state) {
             case PARSE_WHITESPACE:
                 if (isIn(*pos, whiteSpace)) {
@@ -289,7 +290,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                 return -3;
         }
     }
-//fprintf(stderr, "Left loop\n");
+    log_out(2, "Left parsing loop\n");
     //Parsing finished - check state to terminate command properly - if termination did not happen
     //already.
     //FIXME: Check when this is necessary, as in the last command we may get here without an act command.
