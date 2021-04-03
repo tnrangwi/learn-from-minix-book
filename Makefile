@@ -1,23 +1,22 @@
 .SUFFIXES:
+.SUFFIXES: .c .o
 .PHONY:clean
 
 all: trsh
 
-ODIR=obj
 CC=gcc
 CFLAGS=-Wall
 
-_OBJ = trsh.o cmdline.o log.o
-OBJ = $(patsubst %,$(ODIR)/%,$(_OBJ))
+OBJ = trsh.o cmdline.o log.o
 
-$(ODIR)/%.o: %.c
+%.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 trsh: $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $(OBJ)
         
 clean:
-	rm -f $(ODIR)/*.o
+	rm -f *.o
 
 mrproper: clean
 	rm -f trsh

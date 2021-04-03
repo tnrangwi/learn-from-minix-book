@@ -338,7 +338,7 @@ static void init(int argc, char *argv[]) {
     }
     if (trsh_status.interactive) {
         trsh_status.sigINT.sa_flags = 0;
-        trsh_status.sigINT.sa_mask = 0;
+        sigemptyset(&trsh_status.sigINT.sa_mask);
         trsh_status.sigINT.sa_handler = sigHandler;
         if (sigaction(SIGINT, &trsh_status.sigINT, &trsh_status.sigINTsave) != 0) {
             perror("Cannot install initial signal handler (SIGINT)");
