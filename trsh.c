@@ -143,8 +143,10 @@ static int findCommand(const char *cmd, char **name, char **path) {
             if (access(*path, F_OK) == 0) {
                 break;
             } else {
+                //FIXME: This in principle only is OK for file not found. We may check errno here.
                 free(*path);
                 *path = NULL;
+                errno = 0;
             }
         }
         if (*path == NULL) free(*name);
@@ -309,6 +311,7 @@ static void init(int argc, char *argv[]) {
     trsh_status.interactive = isatty(fileno(stdin)) && isatty(fileno(stdout));
     errno = 0; //Clear eventually set ENOTTY
     trsh_status.prog = argv[0];
+    trsh_status.nPosArgs = 0;
     int logLevel;
     while ((i = getopt(argc, argv, ":L:")) != -1) {
         switch (i) {
@@ -326,6 +329,12 @@ static void init(int argc, char *argv[]) {
     }
     argc -= optind;
     argv += optind;
+    trsh_status.environ = (char **) malloc(sizeof(char *));
+    if (trsh_status.environ == NULL) {
+        log_out(0, "Out of memory in init\n");
+        _exit(1);
+    }
+    trsh_status.environ[0] = NULL;
 
     if (argc > 0) {
         trsh_status.interactive = 0;
@@ -335,6 +344,9 @@ static void init(int argc, char *argv[]) {
             _exit(1);
         }
         //FIXME: Now set positional parameters from the remaining arguments
+        //This will be a non interactive shell and we have to fill $1, $2, ...
+        //FIXME: The freopen should in case of a script make sure that script is read by the shell
+        //This did work, although some further review should be done
     }
     if (trsh_status.interactive) {
         trsh_status.sigINT.sa_flags = 0;

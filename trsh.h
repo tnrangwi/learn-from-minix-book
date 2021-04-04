@@ -10,5 +10,8 @@ struct trsh_stat {
     struct sigaction sigINTsave; // original signal handler for SIGINT
     struct sigaction sigQUITsave; // original signal handler for SIGQUIT
     struct sigaction sigINT; // Signal handler of the shell
+    char **posArgs; //positional parameters ($1, $2, ...)
+    int nPosArgs;
+    char **environ; //pointer to shell envirnment
 } ;
 #endif /* TRSH_H */

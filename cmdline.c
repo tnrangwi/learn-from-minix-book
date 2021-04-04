@@ -1,6 +1,5 @@
 /**
   FIXME
-  * Implement some logger to use and suppress all debug output
   * & does not work yet
   * Signal handling incomplete. Should handle SIGHUP properly, handle SIGCHLD to maintain process list, SIGSTP while running process.
   * Implement fg / bg for job control. Goes hand in hand with changes in signal handling.
@@ -23,6 +22,7 @@
 #define PARSE_WORD 2
 #define PARSE_PIPE 3
 #define PARSE_BGROUND 4
+#define PARSE_VAR 5
 
 
 /**
@@ -81,9 +81,40 @@ void cmd_free(struct cmd_simpleCmd *commands, int numCmds) {
         }
         log_out(2, "Free words.\n");
         free(current->words);
+        if (current->environ) {
+            for (j=0; current->environ[j] != NULL; j++) {
+                free(current->environ[j]);
+            }
+            free(current->environ);
+        }
     }
     log_out(2, "Free command itself\n");
     free(commands);
+}
+
+static struct cmd_simpleCmd *cmd_alloc(struct cmd_simpleCmd *commands, int numCmds) {
+    struct cmd_simpleCmd *result;
+    if (numCmds <= 0 || numCmds > 1 && commands == NULL) {
+        log_out(0, "Internal error in cmd_alloc: Error in command pipeline:%d/%p", numCmds, commands);
+        return NULL;
+    }
+    if (numCmds == 1) { //1st command ever
+        result = (struct cmd_simpleCmd *) malloc(numCmds * sizeof(struct cmd_simpleCmd));
+    } else { //next command
+        result = (struct cmd_simpleCmd *) realloc(commands, numCmds * sizeof(struct cmd_simpleCmd));
+        if (result == NULL) {
+            cmd_free(commands, numCmds - 1);
+        }
+    }
+    if (result == NULL) {
+        log_out(0, "Error allocating memory for command line");
+        return NULL;
+    }
+    struct cmd_simpleCmd *last = result + numCmds - 1;
+    last->args = 0;
+    last->words = NULL;
+    last->environ = NULL;
+    return result;
 }
 
 /**
@@ -99,7 +130,6 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
     int numCmds = 0; //Length of command list
     int numChars = 0; //Length of currently parsed word
     struct cmd_simpleCmd *result = NULL; //array with command lists
-    struct cmd_simpleCmd *tmpResult; //temporary helper
     struct cmd_simpleCmd *actCmd = NULL; //pointer to currently handled command
     char **tmpWords = NULL; //Temporary pointer for memory allocation
     char *tmpWord = NULL; //Temporary pointer for memory allocation
@@ -126,6 +156,8 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                 if (isIn(*pos, whiteSpace)) {
                     ; //ignore only, nothing to do
                 } else if (actCmd == NULL &&  *pos == '#') {
+                    //FIXME: Rather incomplete handling of comments, only works in 1st command
+                    //That's just enough to ignore comment lines and especially a she-bang line for scripts.
                     if (numCmds > 0) {
                         cmd_free(result, numCmds);
                     }
@@ -133,26 +165,8 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                 } else if (isIn(*pos, commandChars)) {
                 //either a new command line starts, or a new word in the current command line
                     if (actCmd == NULL) {
-                        //FIXME: use one block and realloc with NULL pointer in 1st alloc, same code
-                        if (numCmds == 0) { //1st command ever
-                            result = (struct cmd_simpleCmd *) malloc(++numCmds * sizeof(struct cmd_simpleCmd));
-                            if (result == NULL) {
-                                errno = ENOMEM;
-                                return -1;
-                            }
-                        } else { //next command
-                            tmpResult = (struct cmd_simpleCmd *) realloc(result, ++numCmds * sizeof(struct cmd_simpleCmd));
-                            if (tmpResult == NULL) {
-                                cmd_free(result, numCmds - 1);
-                                errno = ENOMEM;
-                                return -1;
-                            } else {
-                                result = tmpResult;
-                            }
-                        }
+                        if ((result = cmd_alloc(result, ++numCmds)) == NULL) return -1;
                         actCmd = result + numCmds - 1;
-                        actCmd->args = 0;
-                        //actCmd->words = NULL;
                     }
                     if (actCmd->args == 0) { //1st word in command
                         //FIXME: With actCmd->words initialized above just use realloc block
@@ -216,6 +230,11 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                 }
                 break;
             case PARSE_WORD: //parse word of command, so we have a valid command
+                /* FIMXE: Implementation of environment parsing starts here
+                if (*pos == '=' && actCmd->args == 0 || isVar(actCmd->words[0], numChars)) {
+                    //Move command word to variable word
+                    state = PARSE_VAR;
+                } else */
                 if (isIn(*pos, commandChars)) {
                     if (++numChars >= bufsize) {
                         bufsize += initBufsize;
