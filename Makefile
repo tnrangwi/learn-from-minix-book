@@ -4,8 +4,8 @@
 
 all: trsh
 
-CC=gcc
-CFLAGS=-Wall -Wno-logical-op-parentheses
+CC=cc
+CFLAGS=-Wall -Wno-parentheses
 
 OBJ = trsh.o cmdline.o log.o
 
