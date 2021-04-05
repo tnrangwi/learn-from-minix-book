@@ -29,6 +29,9 @@
 #define PARSE_BGROUND 4
 #define PARSE_VAR 5
 
+#define ALLOC_WORD 1
+#define ALLOC_ENV 2
+
 
 /**
     Display function: return descriptive string for continuation marker.
@@ -139,6 +142,81 @@ static struct cmd_simpleCmd *cmd_alloc(struct cmd_simpleCmd *commands, int numCm
     last->words = NULL;
     last->environ = NULL;
     return result;
+}
+
+/**
+  Allocate a new command word or environment word within a command structure.
+  @param cmd: Pointer to command structure
+  @param int: type used for allocation (either in cmd->words or cmd->environ)
+  @return: Address within the array where the new word is located
+ */
+static char **allocWord(struct cmd_simpleCmd *cmd, int allocType) {
+    int nWord;
+    char **wordPtr;
+    char ***arrayAddr;
+    if (cmd == NULL) {
+        log_out(0, "Internal error - empty command\n");
+        return NULL;
+    }
+    switch(allocType) {
+        case ALLOC_WORD:
+            arrayAddr = &cmd->words;
+            break;
+        case ALLOC_ENV:
+            arrayAddr = &cmd->environ;
+            break;
+        default:
+            log_out(0, "Internal error: invalid alloc type:%d\n", allocType);
+            return NULL;
+    }
+    if (*arrayAddr == NULL) {
+        *arrayAddr = (char **) malloc(2 * sizeof(char *));
+        if (*arrayAddr == NULL) {
+            log_out(0, "Error allocating memory of type %d\n", allocType);
+            return NULL;
+        }
+        wordPtr = *arrayAddr;
+    } else {
+        for (wordPtr = *arrayAddr, nWord = 0; *wordPtr != NULL; nWord++, wordPtr++);
+        wordPtr = (char **) realloc(*arrayAddr, (nWord + 2) * sizeof(char *));
+        if (wordPtr == NULL) {
+            log_out(0, "Error re-allocating environment memory\n");
+            return NULL;
+        }
+        *arrayAddr = wordPtr;
+        wordPtr = *arrayAddr + nWord;
+    }
+    wordPtr[0] = wordPtr[1] = NULL;
+    return wordPtr;
+}
+
+/**
+  Allocate or reallocate memory for a command string.
+  @param word: address where the char pointer to the word (NULL if new word)
+  @param size: The currently allocated size
+  @param inc: The size increment
+  @return: The word pointer
+ */
+static char *allocString(char **word, int size, int inc) {
+    if (*word == NULL) {
+        *word = (char *) malloc(inc * sizeof(char));
+        if (*word == NULL) {
+            log_out(0, "Out of memory when allocating word\n");
+            return NULL;
+        }
+    } else {
+        if (size + inc < size) {
+            log_out(0, "Integer overflow when reallocating word\n");
+            return NULL;
+        }
+        char *n = realloc(*word, size + inc);
+        if (n == NULL) {
+            log_out(0, "Cannot reallocate memory for word\n");
+            return NULL;
+        }
+        *word = n;
+    }
+    return *word;
 }
 
 /**

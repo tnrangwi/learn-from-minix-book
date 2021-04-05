@@ -406,7 +406,7 @@ int main(int argc, char *argv[]) {
                 log_out(1, "Continued with:%s\n", cmd_showNext(multiCmd[i].next));
             }
             //find pipes and process pipe by pipe
-            int runNext = RUN_ALWAYS;;
+            int runNext = RUN_ALWAYS;
             for (i = 0; i < numCmd;) {
                 //Find end of this list of commands. Pipes must be run in once, connected.
                 //When command is not terminated with pipe, then we run it up to exactly this position.
