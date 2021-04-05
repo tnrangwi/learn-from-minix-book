@@ -12,7 +12,6 @@ enum cmd_next {
 } ;
 
 struct cmd_simpleCmd {
-    int args;
     char **words;
     char **environ;
     enum cmd_next next;

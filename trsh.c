@@ -22,22 +22,22 @@ static void sigHandler(int sig) {
     fprintf(stdout, "\n");
 }
 
-static int iCd(int, char *[]);
-static int iExport(int, char *[]);
-static int iNop(int, char*[]);
+static int iCd(char *[]);
+static int iExport(char *[]);
+static int iNop(char*[]);
 const char *shlFunc[] = { ":", "cd", "export" };
 
-static int (*shlCall[])(int, char *[]) = {
+static int (*shlCall[])(char *[]) = {
     iNop,
     iCd,
     iExport
 };
 
-static int iNop(int argc, char *argv[]) { return 0; }
+static int iNop(char *argv[]) { return 0; }
 
-static int iCd(int argc, char *argv[]) {
+static int iCd(char *argv[]) {
     const char *dir;
-    if (argc == 0) {
+    if (argv == NULL || argv[0] == NULL) {
         dir = getenv("HOME");
         if (dir == NULL) {
             fprintf(stderr, "HOME is not set\n");
@@ -53,7 +53,7 @@ static int iCd(int argc, char *argv[]) {
     return 1;
 }
 
-static int iExport(int argc, char *argv[]) {
+static int iExport(char *argv[]) {
     return 0;
 }
 
@@ -187,16 +187,20 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
     int fds[2];
     int thisIn=-1, thisOut=-1, nextIn=-1;
     int childpid;
-    int i;
 
     log_out(1, "Run pipe, number of simple commands:%d\n", maxCmd + 1);
     for (nCmd = 0; nCmd <= maxCmd; nCmd++) {
         log_out(1, "Command %d:'%s'\n", nCmd, commands[nCmd].words[0]);
         char *cmdName = NULL, *cmdPath = NULL;
         int cmdCode;
+        //FIXME: Handle case when there is no command
+        if (commands[nCmd].words == NULL) { //no command, only environment
+            log_out(0, "Setting environment not yet implemented\n");
+            return 1;
+        }
         cmdCode = findCommand(commands[nCmd].words[0], &cmdName, &cmdPath);
         if (maxCmd == 0 && cmdCode >= 0 && cmdCode < INT_MAX) { //Exactly one internal command
-            return (*shlCall)(commands[0].args - 1, commands[0].args > 0 ? commands[0].words + 1 : NULL);
+            return (*shlCall)( commands[0].words + 1);
         }
         if (nCmd < maxCmd) {
             if (pipe(fds) != 0) {
@@ -235,23 +239,7 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
                 fprintf(stderr, "Internal error - one of the command pointers is NULL\n");
                 exit(EXIT_FAILURE);
             }
-            char **argv;
-            argv = (char **) malloc((commands[nCmd].args + 2) * sizeof(char *));
-            if (argv == NULL) {
-                perror("Error allocating argv");
-                exit(EXIT_FAILURE);
-            }
-            argv[0] = cmdName;
-            for (i=1;i<commands[nCmd].args;i++) {
-                argv[i] = malloc((strlen(commands[nCmd].words[i]) + 1) * sizeof(char));
-                if (argv[i] == NULL) {
-                    perror("Error allocating argv string");
-                    exit(EXIT_FAILURE);
-                }
-                strcpy(argv[i], commands[nCmd].words[i]);
-            }
-            argv[commands[nCmd].args] = NULL;
-            execve(cmdPath, argv, environ);
+            execve(cmdPath, commands[nCmd].words, environ);
             //we are still here - unable to start command - error handling
             fprintf(stderr, "Error executing external call:%s:Error:%s\n", commands[nCmd].words[0], strerror(errno));
             exit(EXIT_FAILURE);
@@ -399,8 +387,8 @@ int main(int argc, char *argv[]) {
         } else {
             log_out(1, "Num commands:%d\n", numCmd);
             for (i=0; i < numCmd;i++) {
-                log_out(1, "Command:%s, words%d\n", multiCmd[i].words[0], multiCmd[i].args);
-                for (j=1; j < multiCmd[i].args; j++) {
+                log_out(1, "Command:%s\n", multiCmd[i].words[0]);
+                for (j=1; multiCmd[i].words[j] != NULL; j++) {
                     log_out(1, "arg %d:%s.\n", j, multiCmd[i].words[j]);
                 }
                 log_out(1, "Continued with:%s\n", cmd_showNext(multiCmd[i].next));

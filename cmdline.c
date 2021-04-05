@@ -29,7 +29,7 @@
 #define PARSE_BGROUND 4
 #define PARSE_VAR 5
 
-#define ALLOC_WORD 1
+#define ALLOC_CMD 1
 #define ALLOC_ENV 2
 
 
@@ -98,12 +98,14 @@ void cmd_free(struct cmd_simpleCmd *commands, int numCmds) {
     struct cmd_simpleCmd* current;
     for (i=0, current = commands; i< numCmds; i++, current++) {
         log_out(2, "Free command %d\n", i);
-        for (j=0; j < current->args; j++) {
-            log_out(2, "Free word %d\n", j);
-            free(current->words[j]);
+        if (current->words) {
+            for (j=0; current->words[j] != NULL; j++) {
+                log_out(2, "Free word %d\n", j);
+                free(current->words[j]);
+            }
+            log_out(2, "Free words.\n");
+            free(current->words);
         }
-        log_out(2, "Free words.\n");
-        free(current->words);
         if (current->environ) {
             for (j=0; current->environ[j] != NULL; j++) {
                 free(current->environ[j]);
@@ -111,7 +113,7 @@ void cmd_free(struct cmd_simpleCmd *commands, int numCmds) {
             free(current->environ);
         }
     }
-    log_out(2, "Free command itself\n");
+    log_out(2, "Free command(s) itself\n");
     free(commands);
 }
 
@@ -138,7 +140,6 @@ static struct cmd_simpleCmd *cmd_alloc(struct cmd_simpleCmd *commands, int numCm
         return NULL;
     }
     struct cmd_simpleCmd *last = result + numCmds - 1;
-    last->args = 0;
     last->words = NULL;
     last->environ = NULL;
     return result;
@@ -159,7 +160,7 @@ static char **allocWord(struct cmd_simpleCmd *cmd, int allocType) {
         return NULL;
     }
     switch(allocType) {
-        case ALLOC_WORD:
+        case ALLOC_CMD:
             arrayAddr = &cmd->words;
             break;
         case ALLOC_ENV:
@@ -209,7 +210,7 @@ static char *allocString(char **word, int size, int inc) {
             log_out(0, "Integer overflow when reallocating word\n");
             return NULL;
         }
-        char *n = realloc(*word, size + inc);
+        char *n = realloc(*word, (size + inc) * sizeof(char));
         if (n == NULL) {
             log_out(0, "Cannot reallocate memory for word\n");
             return NULL;
@@ -217,45 +218,6 @@ static char *allocString(char **word, int size, int inc) {
         *word = n;
     }
     return *word;
-}
-
-/**
-  Move a command word into an environment word (as it turned out to be a set instead of a command word)
-  Just the pointer is moved and the environment array and the command word array adjusted.
-  @param cmd: The current command within the command array
-  @return: Pointer to the environment word
- */
-static char **moveCmdToEnv(struct cmd_simpleCmd *cmd) {
-    int nEnv;
-    char **envPtr;
-    if (cmd == NULL) {
-        log_out(0, "Internal error in moveCmdToEnv\n");
-        return NULL;
-    }
-    if (cmd->args != 1) {
-        log_out(0, "Internal error - environment variables only should be parsed before commands\n");
-        return NULL;
-    }
-    if (cmd->environ == NULL) {
-        cmd->environ = (char **) malloc(2 * sizeof(char *));
-        if (cmd->environ == NULL) {
-            log_out(0, "Error allocating environment memory\n");
-            return NULL;
-        }
-        envPtr = cmd->environ;
-    } else {
-        for (envPtr = cmd->environ, nEnv = 0; *envPtr != NULL; nEnv++, envPtr++);
-        envPtr = (char **) realloc(cmd->environ, (nEnv + 2) * sizeof(char *));
-        if (envPtr == NULL) {
-            log_out(0, "Error re-allocating environment memory\n");
-            return NULL;
-        }
-        cmd->environ = envPtr;
-        envPtr = cmd->environ + nEnv;
-    }
-    *envPtr = cmd->words[--cmd->args];
-    free(cmd->words);
-    return envPtr;
 }
 
 /**
@@ -272,9 +234,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
     int numChars = 0; //Length of currently parsed word
     struct cmd_simpleCmd *result = NULL; //array with command lists
     struct cmd_simpleCmd *actCmd = NULL; //pointer to currently handled command
-    char **tmpWords = NULL; //Temporary pointer for memory allocation
-    char *tmpWord = NULL; //Temporary pointer for memory allocation
-    char **curEnv; //pointer to the current environment entry we are processing
+    char **curWord; //pointer to storage of current word we are processing (environment or command)
     //character constants
     const char *commandChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-@.,=/#:";
     const char *whiteSpace = " \t\r";
@@ -289,7 +249,6 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
     pos = line;
     state = PARSE_WHITESPACE;
     log_out(2, "Start parsing commandline...:%s.\n",line);
-//FIXME: For use with execve, a null terminated last element is needed
 //FIXME: Several similar lines of code should be put into macro
     for (pos = line; *pos != '\0' && *pos != '\n'; pos++) {
         log_out(2, "Character:%c.\n", *pos);
@@ -310,37 +269,19 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                         if ((result = cmd_alloc(result, ++numCmds)) == NULL) return -1;
                         actCmd = result + numCmds - 1;
                     }
-                    if (actCmd->args == 0) { //1st word in command
-                        //FIXME: With actCmd->words initialized above just use realloc block
-                        actCmd->words = (char **) malloc(++(actCmd->args) * sizeof(char *));
-                        if (actCmd->words == NULL) {
-                            actCmd->args--;
-                            cmd_free(result, numCmds);
-                            errno = ENOMEM;
-                            return -1;
-                        }
-                    } else { //add word to command
-                        tmpWords = (char **) realloc(actCmd->words, ++(actCmd->args) * sizeof(char *));
-                        if (tmpWords == NULL) {
-                            actCmd->args--;
-                            cmd_free(result, numCmds);
-                            errno = ENOMEM;
-                            return -1;
-                        } else {
-                            actCmd->words = tmpWords;
-                        }
+                    if ((curWord = allocWord(actCmd, ALLOC_CMD)) == NULL) {
+                        cmd_free(result, numCmds);
+                        return -1;
                     }
                     //allocate memory for this word
-                    actCmd->words[actCmd->args - 1] = (char *) malloc(initBufsize * sizeof(char));
-                    if (actCmd->words[actCmd->args - 1] == NULL) {
+                    if (allocString(curWord, 0, initBufsize) == NULL) {
                         cmd_free(result, numCmds);
-                        errno = ENOMEM;
                         return -1;
                     }
                     numChars = 1;
                     bufsize = initBufsize;
-                    //Finally, copy the single character into the command word :-)
-                    actCmd->words[actCmd->args - 1][numChars - 1] = *pos;
+                    //Finally, copy the single character into the command word
+                    (*curWord)[numChars - 1] = *pos;
                     state = PARSE_WORD;
                 } else if(*pos == '|') {
                     if (actCmd == NULL) {
@@ -374,25 +315,16 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
             case PARSE_VAR:
                 if (isIn(*pos, commandChars)) {
                     if (++numChars >= bufsize) {
+                        if (allocString(curWord, bufsize, initBufsize) == NULL) {
+                            cmd_free(result, numCmds);
+                            return -1;
+                        }
                         bufsize += initBufsize;
-                        if (bufsize <= 0) { //integer overflow
-                            cmd_free(result, numCmds);
-                            log_out(0, "Variable name too long - integer overflow\n");
-                            cmd_free(result, numCmds);
-                            return -1;
-                        }
-                        tmpWord = (char *) realloc(*curEnv, bufsize);
-                        if (tmpWord == NULL) {
-                            cmd_free(result, numCmds);
-                            log_out(0, "Out of memory while enhancing space for environment variable");
-                            return -1;
-                        }
-                        *curEnv = tmpWord;
                     }
-                    (*curEnv)[numChars - 1] = *pos;
+                    (*curWord)[numChars - 1] = *pos;
                 } else if (isIn(*pos, whiteSpace)) {
-                    //Check whether buffer has room for the terminator
-                    (*curEnv)[numChars] = '\0';
+                    //FIXME: Check whether buffer has room for the terminator
+                    (*curWord)[numChars] = '\0';
                     state = PARSE_WHITESPACE;
                 }  else {
                 //FIXME: This means white space before e.g. ; is mandatory
@@ -401,50 +333,35 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                     return -2;
                 }
                 break;
-            case PARSE_WORD: //parse word of command, so we have a valid command
-                if (*pos == '=' && actCmd->args == 1 && isVar(actCmd->words[0], numChars)) {
-                    if ((curEnv = moveCmdToEnv(actCmd)) == NULL) {
+            case PARSE_WORD: //parse word of command, so we have a valid command already
+                if (*pos == '=' && actCmd->words[1] == NULL && isVar(actCmd->words[0], numChars)) { //switch command word to environment word
+                    if ((curWord = allocWord(actCmd, ALLOC_ENV)) == NULL) {
                         cmd_free(result, numCmds);
                         return -1;
                     }
+                    *curWord = actCmd->words[0]; //take over string that must be in 1st word (see check above)
+                    free(actCmd->words); actCmd->words = NULL; //FIXME: Macro?
                     if (++numChars >= bufsize) {
+                        if (allocString(curWord, bufsize, initBufsize) == NULL) {
+                            cmd_free(result, numCmds);
+                            return -1;
+                        }
                         bufsize += initBufsize;
-                        if (bufsize <= 0) { //integer overflow
-                            cmd_free(result, numCmds);
-                            log_out(0, "Variable name too long - integer overflow\n");
-                            cmd_free(result, numCmds);
-                            return -1;
-                        }
-                        tmpWord = (char *) realloc(*curEnv, bufsize);
-                        if (tmpWord == NULL) {
-                            cmd_free(result, numCmds);
-                            log_out(0, "Out of memory while enhancing space for environment variable");
-                            return -1;
-                        }
-                        *curEnv = tmpWord;
                     }
-                    (*curEnv)[numChars - 1] = '=';
+                    (*curWord)[numChars - 1] = '=';
                     state = PARSE_VAR;
                 } else if (isIn(*pos, commandChars)) {
                     if (++numChars >= bufsize) {
+                        if (allocString(curWord, bufsize, initBufsize) == NULL) {
+                            cmd_free(result, numCmds);
+                            return -1;
+                        }
                         bufsize += initBufsize;
-                        if (bufsize <= 0) { //integer overflow
-                            cmd_free(result, numCmds);
-                            errno = ERANGE;
-                            return -1;
-                        }
-                        tmpWord = (char *) realloc(actCmd->words[actCmd->args - 1], bufsize);
-                        if (tmpWord == NULL) {
-                            cmd_free(result, numCmds);
-                            errno = ENOMEM;
-                            return -1;
-                        }
-                        actCmd->words[actCmd->args - 1] = tmpWord;
                     }
-                    actCmd->words[actCmd->args - 1][numChars - 1] = *pos;
+                    (*curWord)[numChars - 1] = *pos;
                 } else if (isIn(*pos, whiteSpace)) {
-                    //Check whether buffer has room for the terminator
-                    actCmd->words[actCmd->args - 1][numChars] = '\0';
+                    //FIXME: Check whether buffer has room for the terminator
+                    (*curWord)[numChars] = '\0';
                     state = PARSE_WHITESPACE;
                 }  else {
                 //FIXME: This means white space before any | or & is mandatory
@@ -510,7 +427,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                 break;
             case PARSE_WORD:
                 //FIXME: Overflow if buffer is too small. There might not be enough place here for the terminator
-                actCmd->words[actCmd->args - 1][numChars] = '\0';
+                (*curWord)[numChars] = '\0';
                 actCmd->next = CMD_TERMINATED;
                 break;
             case PARSE_PIPE:
@@ -523,7 +440,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                 break;
             case PARSE_VAR:
                 //Fixme: Overflow if buffer is too small
-                (*curEnv)[numChars] = '\0';
+                (*curWord)[numChars] = '\0';
                 actCmd->next = CMD_TERMINATED;
                 break;
             default:
