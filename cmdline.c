@@ -8,6 +8,11 @@
   * Implement shell variables and export, especially setting variables for external calls
   * Tests for memory leaks / memory usage still necessary
   * Error handling when one of the commands does not exist / exec fails - is this correct currently?
+  * Buffer overflow not caught on terminator
+  * command and environment parsing is almost similar. Simplify and merge:
+    * both environment / command should work on one pointer like **envPtr
+    * reallocation for a command word should be moved to a function or macro
+    * then fix for buffer overflow on terminator is a function call as well
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -437,6 +442,11 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                 break;
             case PARSE_BGROUND:
                 actCmd->next = CMD_BGROUND;
+                break;
+            case PARSE_VAR:
+                //Fixme: Overflow if buffer is too small
+                (*curEnv)[numChars] = '\0';
+                actCmd->next = CMD_TERMINATED;
                 break;
             default:
                 cmd_free(result, numCmds);
