@@ -8,11 +8,6 @@
   * Implement shell variables and export, especially setting variables for external calls
   * Tests for memory leaks / memory usage still necessary
   * Error handling when one of the commands does not exist / exec fails - is this correct currently?
-  * Buffer overflow not caught on terminator
-  * command and environment parsing is almost similar. Simplify and merge:
-    * both environment / command should work on one pointer like **envPtr
-    * reallocation for a command word should be moved to a function or macro
-    * then fix for buffer overflow on terminator is a function call as well
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -121,10 +116,10 @@ void cmd_free(struct cmd_simpleCmd *commands, int numCmds) {
   Allocate / re-allocate simple command array and initialize it afterwards.
   @return: Newly allocated or enhanced command array or NULL on error.
  */
-static struct cmd_simpleCmd *cmd_alloc(struct cmd_simpleCmd *commands, int numCmds) {
+static struct cmd_simpleCmd *allocCmd(struct cmd_simpleCmd *commands, int numCmds) {
     struct cmd_simpleCmd *result;
     if (numCmds <= 0 || numCmds > 1 && commands == NULL) {
-        log_out(0, "Internal error in cmd_alloc: Error in command pipeline:%d/%p", numCmds, commands);
+        log_out(0, "Internal error in allocCmd: Error in command pipeline:%d/%p", numCmds, commands);
         return NULL;
     }
     if (numCmds == 1) { //1st command ever
@@ -266,7 +261,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                 } else if (isIn(*pos, commandChars)) {
                 //either a new command line starts, or a new word in the current command line
                     if (actCmd == NULL) {
-                        if ((result = cmd_alloc(result, ++numCmds)) == NULL) return -1;
+                        if ((result = allocCmd(result, ++numCmds)) == NULL) return -1;
                         actCmd = result + numCmds - 1;
                     }
                     if ((curWord = allocWord(actCmd, ALLOC_CMD)) == NULL) {
@@ -286,21 +281,22 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                 } else if(*pos == '|') {
                     if (actCmd == NULL) {
                         cmd_free(result, numCmds);
-                        fprintf(stderr, "Got | without command\n");
+                        log_out(0, "Got | without command\n");
                         return -2;
                     }
                     state = PARSE_PIPE;
                 } else if(*pos == '&') {
                     if (actCmd == NULL) {
                         cmd_free(result, numCmds);
-                        fprintf(stderr, "Got & without command\n");
+                        log_out(0, "Got & without command\n");
                         return -2;
                     }
                     state = PARSE_BGROUND;
                 } else if(*pos == ';') {
+                    //FIXME: We could skip to the next command instead
                     if (actCmd == NULL) {
                         cmd_free(result, numCmds);
-                        fprintf(stderr, "Got ; without command\n");
+                        log_out(0, "Got ; without command\n");
                         return -2;
                     }
                     actCmd->next = CMD_SEP;
@@ -308,7 +304,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                     actCmd = NULL;
                 } else {
                     cmd_free(result, numCmds);
-                    fprintf(stderr, "Got %c while parsing white space - unexpected\n", *pos);
+                    log_out(0, "Got %c while parsing white space - unexpected\n", *pos);
                     return -2;
                 }
                 break;
@@ -323,7 +319,10 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                     }
                     (*curWord)[numChars - 1] = *pos;
                 } else if (isIn(*pos, whiteSpace)) {
-                    //FIXME: Check whether buffer has room for the terminator
+                    if (numChars + 1 >= bufsize && allocString(curWord, bufsize, 1) == NULL) {
+                        cmd_free(result, numCmds);
+                        return -1;
+                    }
                     (*curWord)[numChars] = '\0';
                     state = PARSE_WHITESPACE;
                 }  else {
@@ -333,13 +332,14 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                     return -2;
                 }
                 break;
-            case PARSE_WORD: //parse word of command, so we have a valid command already
-                if (*pos == '=' && actCmd->words[1] == NULL && isVar(actCmd->words[0], numChars)) { //switch command word to environment word
+            case PARSE_WORD: //parse word of command, a command structure and word was already allocated
+                if (*pos == '=' && actCmd->words[1] == NULL && isVar(actCmd->words[0], numChars)) {
+                    //switch command word to environment word
                     if ((curWord = allocWord(actCmd, ALLOC_ENV)) == NULL) {
                         cmd_free(result, numCmds);
                         return -1;
                     }
-                    *curWord = actCmd->words[0]; //take over string that must be in 1st word (see check above)
+                    *curWord = actCmd->words[0]; //take over string that must be in 1st word
                     free(actCmd->words); actCmd->words = NULL; //FIXME: Macro?
                     if (++numChars >= bufsize) {
                         if (allocString(curWord, bufsize, initBufsize) == NULL) {
@@ -348,7 +348,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                         }
                         bufsize += initBufsize;
                     }
-                    (*curWord)[numChars - 1] = '=';
+                    (*curWord)[numChars - 1] = *pos;
                     state = PARSE_VAR;
                 } else if (isIn(*pos, commandChars)) {
                     if (++numChars >= bufsize) {
@@ -360,7 +360,10 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                     }
                     (*curWord)[numChars - 1] = *pos;
                 } else if (isIn(*pos, whiteSpace)) {
-                    //FIXME: Check whether buffer has room for the terminator
+                    if (numChars + 1 >= bufsize && allocString(curWord, bufsize, 1) == NULL) {
+                        cmd_free(result, numCmds);
+                        return -1;
+                    }
                     (*curWord)[numChars] = '\0';
                     state = PARSE_WHITESPACE;
                 }  else {
@@ -382,9 +385,10 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                     actCmd = NULL;
                 } else if (isIn(*pos, commandChars)) {
                     actCmd->next = CMD_PIPE;
-                    //same as if new command opened after whitespace put that into function first
+                    //FIXME: same as if new command opened after whitespace put that into function first
+                    // then make it possible here as well
                     cmd_free(result, numCmds);
-                    fprintf(stderr, "Pipe after command not yet supported. Use a whitespace between.\n");
+                    log_out(0, "Pipe after command not yet supported. Use a whitespace between.\n");
                     return -2;
                     state = PARSE_WORD;
                 } else {
@@ -405,6 +409,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                     //FIXME: See above
                     actCmd = NULL;
                 } else {
+                //FIXME: Same as for PARSE_PIPE -> enable command word after pipe
                     cmd_free(result, numCmds);
                     fprintf(stderr, "While parsing pipe got unexpected character %c.\n", *pos);
                     return -2;
@@ -426,26 +431,33 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                 actCmd->next = CMD_TERMINATED;
                 break;
             case PARSE_WORD:
-                //FIXME: Overflow if buffer is too small. There might not be enough place here for the terminator
+                //FIXME: All these should be done in a EXIT_IF(condition) macro logging the line number.
+                if (numChars + 1 >= bufsize && allocString(curWord, bufsize, 1) == NULL) {
+                    cmd_free(result, numCmds);
+                    return -1;
+                }
                 (*curWord)[numChars] = '\0';
                 actCmd->next = CMD_TERMINATED;
                 break;
             case PARSE_PIPE:
                 cmd_free(result, numCmds);
-                fprintf(stderr, "Unexpected pipe at end of command line.\n");
+                log_out(0, "Unexpected pipe at end of command line.\n");
                 return -2;
                 break;
             case PARSE_BGROUND:
                 actCmd->next = CMD_BGROUND;
                 break;
             case PARSE_VAR:
-                //Fixme: Overflow if buffer is too small
+                if (numChars + 1 >= bufsize && allocString(curWord, bufsize, 1) == NULL) {
+                    cmd_free(result, numCmds);
+                    return -1;
+                }
                 (*curWord)[numChars] = '\0';
                 actCmd->next = CMD_TERMINATED;
                 break;
             default:
                 cmd_free(result, numCmds);
-                fprintf(stderr, "Unexpected state at end of parsing:%d\n", state);
+                log_out(0, "Unexpected state at end of parsing:%d\n", state);
                 return -3;
         }
     }
