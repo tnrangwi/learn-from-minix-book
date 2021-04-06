@@ -200,7 +200,7 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
         }
         cmdCode = findCommand(commands[nCmd].words[0], &cmdName, &cmdPath);
         if (maxCmd == 0 && cmdCode >= 0 && cmdCode < INT_MAX) { //Exactly one internal command
-            return (*shlCall)( commands[0].words + 1);
+            return (*shlCall[cmdCode])(commands[0].words + 1);
         }
         if (nCmd < maxCmd) {
             if (pipe(fds) != 0) {
