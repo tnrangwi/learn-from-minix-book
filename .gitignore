@@ -2,3 +2,5 @@ trsh
 .DS_Store
 a.out
 *.o
+*.core
+core

@@ -75,7 +75,7 @@ static int srchString(char **s1, char **s2) { return strcmp(*s1, *s2); }
  @type name: const char ** (address of a char * string)
  @param path: Put full path to this command here or NULL if it is an internal command
  @type path: const char ** (address of a char* string)
- @return: greater zero if if OK, negative on error. Number of the internal command on internal command.
+ @return: greater or equal zero if OK, negative on error. Number of the internal command on internal command.
  @rtype: int
  */
 static int findCommand(const char *cmd, char **name, char **path) {
@@ -169,7 +169,7 @@ static int findCommand(const char *cmd, char **name, char **path) {
         }
         strcpy(*path, cmd);
     }
-    if (*path == NULL) return 0;
+    if (*path == NULL) return -1;
     if (access(*path, X_OK) == 0) {
         return INT_MAX;
     } else {
@@ -190,16 +190,20 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
 
     log_out(1, "Run pipe, number of simple commands:%d\n", maxCmd + 1);
     for (nCmd = 0; nCmd <= maxCmd; nCmd++) {
-        log_out(1, "Command %d:'%s'\n", nCmd, commands[nCmd].words[0]);
+        log_out(1, "Command %d:'%s'\n", nCmd, commands[nCmd].words != NULL ? commands[nCmd].words[0] : "<empty>");
         char *cmdName = NULL, *cmdPath = NULL;
         int cmdCode;
-        //FIXME: Handle case when there is no command
-        if (commands[nCmd].words == NULL) { //no command, only environment
-            log_out(0, "Setting environment not yet implemented\n");
-            return 1;
+        if (maxCmd == 0 && commands[nCmd].words == NULL) { //no command, only environment
+            //set environment
+            return 0;
         }
-        cmdCode = findCommand(commands[nCmd].words[0], &cmdName, &cmdPath);
+        if (commands[nCmd].words == NULL) { //only environment, in the middle of a pipe, useless
+            cmdCode = 0; //Nop
+        } else {
+            cmdCode = findCommand(commands[nCmd].words[0], &cmdName, &cmdPath);
+        }
         if (maxCmd == 0 && cmdCode >= 0 && cmdCode < INT_MAX) { //Exactly one internal command
+            //FIXME: Set environment for call - is this really a use case?
             return (*shlCall[cmdCode])(commands[0].words + 1);
         }
         if (nCmd < maxCmd) {
@@ -233,6 +237,9 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
                 fprintf(stderr, "Cannot find command:%s\n", commands[nCmd].words[0]);
                 exit(EXIT_FAILURE);
             } else if (cmdCode != INT_MAX) {
+                //FIXME: Internal command is safe in child here. Just execute and exit with return code.
+                //Maybe not all of them. Curious what fg would do in a child process.
+                //Catch especially case where we set this to Nop above and do not have arguments.
                 fprintf(stderr, "Internal command not supported in pipe yet\n");
                 exit(EXIT_FAILURE);
             }  else if (cmdName == NULL || cmdPath == NULL) {
@@ -387,9 +394,13 @@ int main(int argc, char *argv[]) {
         } else {
             log_out(1, "Num commands:%d\n", numCmd);
             for (i=0; i < numCmd;i++) {
-                log_out(1, "Command:%s\n", multiCmd[i].words[0]);
-                for (j=1; multiCmd[i].words[j] != NULL; j++) {
-                    log_out(1, "arg %d:%s.\n", j, multiCmd[i].words[j]);
+                if (multiCmd[i].words == NULL) {
+                    log_out(1, "<empty command> - only environment");
+                } else {
+                    log_out(1, "Command:%s\n", multiCmd[i].words[0]);
+                    for (j=1; multiCmd[i].words[j] != NULL; j++) {
+                        log_out(1, "arg %d:%s.\n", j, multiCmd[i].words[j]);
+                    }
                 }
                 log_out(1, "Continued with:%s\n", cmd_showNext(multiCmd[i].next));
             }
