@@ -25,11 +25,13 @@ static void sigHandler(int sig) {
 static int iCd(char *[]);
 static int iExport(char *[]);
 static int iNop(char*[]);
-const char *shlFunc[] = { ":", "cd", "export" };
+static int iExit(char*[]);
+const char *shlFunc[] = { ":", "cd", "exit", "export" };
 
 static int (*shlCall[])(char *[]) = {
     iNop,
     iCd,
+    iExit,
     iExport
 };
 
@@ -51,6 +53,33 @@ static int iCd(char *argv[]) {
     }
     fprintf(stderr, "Cannot chdir to %s:%s\n", dir, strerror(errno));
     return 1;
+}
+
+static int iExit(char *argv[]) {
+    unsigned long rc;
+    char *c;
+    if (argv && argv[0]) {
+        rc = 0;
+        for (c = argv[0]; *c; c++) {
+            if (rc * 10 < rc) {
+                log_out(0, "Number out of range:%s\n", argv[0]);
+                return 1;
+            }
+            rc *= 10;
+            if (*c < '0' || *c > '9') {
+                log_out(0, "Illegal number:'%s'\n", argv[0]);
+                return 1;
+            }
+            int add = *c - '0';
+            if (add + rc < rc || (rc += add) > LONG_MAX) {
+                log_out(0, "Number out of range:%s\n", argv[0]);
+                return 1;
+            }
+        }
+    } else {
+        rc = trsh_status.status;
+    }
+    _exit(rc & 255);
 }
 
 static int iExport(char *argv[]) {
@@ -249,7 +278,9 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
             if (commands[nCmd].environ) {
                 char **p = commands[nCmd].environ;
                 while (*p != NULL) {
-                    putenv(*p);
+                    if(putenv(*p)) {
+                        log_out(0, "Error setting environment:%s\n", *p);
+                    }
                     p++;
                 }
             }
@@ -310,6 +341,7 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
 
 static void init(int argc, char *argv[]) {
     int i;
+    trsh_status.status = 0;
     trsh_status.interactive = isatty(fileno(stdin)) && isatty(fileno(stdout));
     errno = 0; //Clear eventually set ENOTTY
     trsh_status.prog = argv[0];
@@ -421,6 +453,12 @@ int main(int argc, char *argv[]) {
                 if (runNext == RUN_ALWAYS || status == 0 && runNext == RUN_IF_OK || status != 0 && runNext == RUN_IF_ERROR) {
                     status = runPipe(multiCmd + i, j - i);
                     log_out(1, "Return code:%d\n", status);
+                    if (status < 0) {
+                        trsh_status.status = 255;
+                        break; //severe error did happen, break this command chain
+                    } else {
+                        trsh_status.status = status;
+                    }
                 }
                 if (multiCmd[j].next == CMD_TRUE) {
                     runNext = RUN_IF_OK;
