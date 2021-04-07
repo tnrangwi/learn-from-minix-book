@@ -472,5 +472,5 @@ int main(int argc, char *argv[]) {
             cmd_free(multiCmd, numCmd);
         }
     }
-    return status;
+    return trsh_status.status;
 }
