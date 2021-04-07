@@ -246,6 +246,13 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
                 fprintf(stderr, "Internal error - one of the command pointers is NULL\n");
                 exit(EXIT_FAILURE);
             }
+            if (commands[nCmd].environ) {
+                char **p = commands[nCmd].environ;
+                while (*p != NULL) {
+                    putenv(*p);
+                    p++;
+                }
+            }
             execve(cmdPath, commands[nCmd].words, environ);
             //we are still here - unable to start command - error handling
             fprintf(stderr, "Error executing external call:%s:Error:%s\n", commands[nCmd].words[0], strerror(errno));
