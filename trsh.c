@@ -8,6 +8,7 @@
 #include "cmdline.h"
 #include "trsh.h"
 #include "log.h"
+#include "env.h"
 
 #define RUN_ALWAYS 0
 #define RUN_IF_OK 1
@@ -26,13 +27,15 @@ static int iCd(char *[]);
 static int iExport(char *[]);
 static int iNop(char*[]);
 static int iExit(char*[]);
-const char *shlFunc[] = { ":", "cd", "exit", "export" };
+static int iSet(char*[]);
+const char *shlFunc[] = { ":", "cd", "exit", "export", "set" };
 
 static int (*shlCall[])(char *[]) = {
     iNop,
     iCd,
     iExit,
-    iExport
+    iExport,
+    iSet
 };
 
 static int iNop(char *argv[]) { return 0; }
@@ -83,6 +86,11 @@ static int iExit(char *argv[]) {
 }
 
 static int iExport(char *argv[]) {
+    return 0;
+}
+
+static int iSet(char *argv[]) {
+    env_dump();
     return 0;
 }
 
@@ -223,7 +231,12 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
         char *cmdName = NULL, *cmdPath = NULL;
         int cmdCode;
         if (maxCmd == 0 && commands[nCmd].words == NULL) { //no command, only environment
-            //set environment
+            if (commands[nCmd].environ) {
+                char **p;
+                for(p = commands[nCmd].environ; *p; p++) {
+                    env_put(*p);
+                }
+            }
             return 0;
         }
         if (commands[nCmd].words == NULL) { //only environment, in the middle of a pipe, useless

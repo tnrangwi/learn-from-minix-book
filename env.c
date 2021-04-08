@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "env.h"
 #include "log.h"
@@ -23,7 +24,7 @@ static int envGet(const char *search, char ***keyAddr, const char **val) {
         log_out(0, "Internal error - env-get s/k/v:%p/%p/%p\n", search, keyAddr, val);
         return -2;
     }
-    if (p == NULL || !(*p>='A' && *p<='Z' || *p>='a' && *p<='Z' || *p=='_')) {
+    if (p == NULL || !(*p>='A' && *p<='Z' || *p>='a' && *p<='z' || *p=='_')) {
         log_out(0, "Invalid search string, internal error\n");
         return -2;
     }
@@ -92,7 +93,7 @@ int env_put(const char *keyVal) {
             key = envStore;
             nEnv = 1;
         } else {
-            char **tEnv = realloc(envStore, ++nEnv);
+            char **tEnv = realloc(envStore, (++nEnv + 1) * sizeof(char *));
             if (tEnv == NULL) {
                 log_out(0, "Out of memory when adding to environment\n");
                 free(word);
@@ -109,4 +110,11 @@ int env_put(const char *keyVal) {
     *key = word;
     strcpy(word, keyVal);
     return 0;
+}
+
+void env_dump() {
+    char **p;
+    if (envStore == NULL) return;
+    for (p = envStore; *p; p++) printf("%s\n", *p);
+    return;
 }
