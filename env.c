@@ -15,7 +15,7 @@ static int nEnv = 0;
     @param val: address to store the null terminated value location.
     @return: Length of the key, -1 if not found and any smaller value on error.
  */
-static int envGet(const char *search, char ***keyAddr, const char **val) {
+int env_get_detail(const char *search, char ***keyAddr, const char **val) {
     const char *p = search;
     //int setExpr = 0; /* maybe we need that later - whether incoming expression is a set or just a variable name */
     int length, n;
@@ -57,7 +57,7 @@ static int envGet(const char *search, char ***keyAddr, const char **val) {
 const char *env_get(const char *search) {
     char **key;
     const char *val;
-    if (envGet(search, &key, &val) >= 0) {
+    if (env_get_detail(search, &key, &val) >= 0) {
         return val;
     }
     return NULL;
@@ -79,7 +79,7 @@ int env_put(const char *keyVal) {
         log_out(0, "No memory in environment\n");
         return -1;
     }
-    if ((rc = envGet(keyVal, &key, &val)) < -1) {
+    if ((rc = env_get_detail(keyVal, &key, &val)) < -1) {
         free(word);
         return -1;
     } else if(rc == -1) {
