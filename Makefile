@@ -7,7 +7,7 @@ all: trsh
 CC=cc
 CFLAGS=-Wall -Wno-parentheses
 
-OBJ = trsh.o cmdline.o log.o
+OBJ = trsh.o cmdline.o log.o env.o
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
