@@ -14,6 +14,7 @@ enum cmd_next {
 struct cmd_simpleCmd {
     char **words;
     char **environ;
+    char *varBuf; //FIXME: Put this somewhere else
     enum cmd_next next;
 } ;
 

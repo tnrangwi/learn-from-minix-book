@@ -16,6 +16,7 @@
 #include <string.h>
 #include "cmdline.h"
 #include "log.h"
+#include "env.h"
 
 #define PARSE_UNKNOWN 0
 #define PARSE_WHITESPACE 1
@@ -23,6 +24,7 @@
 #define PARSE_PIPE 3
 #define PARSE_BGROUND 4
 #define PARSE_VAR 5
+#define PARSE_VARNAME 6
 
 #define ALLOC_CMD 1
 #define ALLOC_ENV 2
@@ -107,6 +109,7 @@ void cmd_free(struct cmd_simpleCmd *commands, int numCmds) {
             }
             free(current->environ);
         }
+        if (current->varBuf) free(current->varBuf);
     }
     log_out(2, "Free command(s) itself\n");
     free(commands);
@@ -227,6 +230,8 @@ static char *allocString(char **word, int size, int inc) {
 int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
     int numCmds = 0; //Length of command list
     int numChars = 0; //Length of currently parsed word
+    int varNumChars = 0; //length of currently parsed variable name for expansion
+    int varEnclosed = 0; //when parsing variables during expansion - if enclosed in braces or not
     struct cmd_simpleCmd *result = NULL; //array with command lists
     struct cmd_simpleCmd *actCmd = NULL; //pointer to currently handled command
     char **curWord; //pointer to storage of current word we are processing (environment or command)
@@ -236,7 +241,9 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
     const char *pos; //looper through command line
     const int initBufsize = 32;
     int bufsize;
+    int varBufsize;
     int state; //track current state of parsing
+    int prevState; //when evaluating variables, only one level supported currently
     if (commands == NULL || line == NULL) {
         errno = EINVAL;
         return -1;
@@ -258,7 +265,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                         cmd_free(result, numCmds);
                     }
                     return 0;
-                } else if (isIn(*pos, commandChars)) {
+                } else if (isIn(*pos, commandChars) || *pos == '$') {
                 //either a new command line starts, or a new word in the current command line
                     if (actCmd == NULL) {
                         if ((result = allocCmd(result, ++numCmds)) == NULL) return -1;
@@ -273,11 +280,25 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                         cmd_free(result, numCmds);
                         return -1;
                     }
-                    numChars = 1;
-                    bufsize = initBufsize;
-                    //Finally, copy the single character into the command word
-                    (*curWord)[numChars - 1] = *pos;
-                    state = PARSE_WORD;
+                    if (*pos == '$') {
+                        if (allocString(&actCmd->varBuf, 0, initBufsize) == NULL) {
+                            cmd_free(result, numCmds);
+                            return -1;
+                        }
+                        varBufsize = initBufsize;
+                        varNumChars = 0;
+                        varEnclosed = 0;
+                        numChars = 0;
+                        bufsize = initBufsize;
+                        prevState = PARSE_WORD;
+                        state = PARSE_VARNAME;
+                    } else {
+                        numChars = 1;
+                        bufsize = initBufsize;
+                        //Finally, copy the single character into the command word
+                        (*curWord)[numChars - 1] = *pos;
+                        state = PARSE_WORD;
+                    }
                 } else if(*pos == '|') {
                     if (actCmd == NULL) {
                         cmd_free(result, numCmds);
@@ -373,6 +394,60 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                     return -2;
                 }
                 break;
+            case PARSE_VARNAME:
+                if (varNumChars == 0 && *pos == '{') {
+                    varEnclosed = 1;
+                    break;
+                } else {
+                    const char *varVal = NULL;
+                    if (++varNumChars >= varBufsize) {
+                        if (allocString(&actCmd->varBuf, varBufsize, initBufsize) == NULL) {
+                            cmd_free(result, numCmds);
+                            return -1;
+                        }
+                        varBufsize += initBufsize;
+                    }
+                    if (isVar(pos, 1)) {
+                        actCmd->varBuf[varNumChars - 1] = *pos;
+                        break; //continue parsing - in all other cases the name of the var is clear
+                    } else if (*pos == '}') { //{
+                        if (varEnclosed) {
+                            //varname is varNumChars from actCmd->varBuf
+                            actCmd->varBuf[varNumChars - 1] = '\0';
+                        } else if (varNumChars == 0) {
+                            varVal = "$}"; //{
+                        } else {
+                            //varname is varNumChars from actCmd->varBuf, put brace back into input
+                            actCmd->varBuf[varNumChars - 1] = '\0';
+                            pos--;
+                        }
+                    } else if (varEnclosed) {
+                        log_out(0, "Syntax error, bad variable substitution\n");
+                        cmd_free(result, numCmds);
+                        return -1;
+                    } else {
+                        actCmd->varBuf[varNumChars - 1] = '\0';
+                        pos--;
+                    }
+                    if (varVal == NULL) *varVal = env_get(actCmd->varBuf);
+                    size_t varLen = 0;
+                    if (varVal != NULL) {
+                        varLen = strlen(varVal);
+                    }
+                    //FIXME: Integer overflow
+                    if (varLen + numChars + 1 >= bufsize) {
+                        if (allocString(curWord, bufsize, varLen + bufsize) == NULL) {
+                            cmd_free(result, numCmds);
+                            return -1;
+                        }
+                    }
+                    //FIXME: check previous state, currently it is alway PARSE_WORD or PARSE_VAR, in both cases curWord is target
+                    if (varLen > 0) strcpy((*curWord) + numChars, varVal);
+                    free(actCmd->varBuf); //FIXME: One buffer for all, local to this function would be enough
+                    numChars += varLen;
+                    state = prevState;
+                    break;
+                }
             case PARSE_PIPE:
                 if (*pos == '|') {
                     actCmd->next = CMD_FALSE;

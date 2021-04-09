@@ -8,6 +8,8 @@
 static char **envStore = NULL;
 static int nEnv = 0;
 
+extern char **environ;
+
 /**
     Search environment for give variable. Before search, do syntax check for variable.
     @param search: A search string, either null terminated key or a null terminated key=value expression
@@ -15,7 +17,7 @@ static int nEnv = 0;
     @param val: address to store the null terminated value location.
     @return: Length of the key, -1 if not found and any smaller value on error.
  */
-int env_get_detail(const char *search, char ***keyAddr, const char **val) {
+int getEnv(const char *search, char ***keyAddr, const char **val) {
     const char *p = search;
     //int setExpr = 0; /* maybe we need that later - whether incoming expression is a set or just a variable name */
     int length, n;
@@ -57,8 +59,11 @@ int env_get_detail(const char *search, char ***keyAddr, const char **val) {
 const char *env_get(const char *search) {
     char **key;
     const char *val;
-    if (env_get_detail(search, &key, &val) >= 0) {
+    int rc;
+    if ((rc = getEnv(search, &key, &val)) >= 0) {
         return val;
+    } else if (rc == -1) {
+        return getenv(search);
     }
     return NULL;
 }
@@ -79,7 +84,7 @@ int env_put(const char *keyVal) {
         log_out(0, "No memory in environment\n");
         return -1;
     }
-    if ((rc = env_get_detail(keyVal, &key, &val)) < -1) {
+    if ((rc = getEnv(keyVal, &key, &val)) < -1) {
         free(word);
         return -1;
     } else if(rc == -1) {
@@ -114,7 +119,19 @@ int env_put(const char *keyVal) {
 
 void env_dump() {
     char **p;
-    if (envStore == NULL) return;
-    for (p = envStore; *p; p++) printf("%s\n", *p);
-    return;
+    if (environ != NULL) {
+        for (p = environ; *p != NULL; p++) {
+            char **k;
+            const char *v;
+            if (getEnv(*p, &k, &v) >= 0) {
+                printf("%s\n", *k);
+            } else {
+                printf("%s\n", *p);
+            }
+        }
+    }
+    //Print all shell variables that have not been printed above
+    for (p = envStore; *p != NULL; p++) {
+        if (getenv(*p) == NULL) printf("%s\n", *p);
+    }
 }

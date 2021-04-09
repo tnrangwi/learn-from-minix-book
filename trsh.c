@@ -90,20 +90,7 @@ static int iExport(char *argv[]) {
 }
 
 static int iSet(char *argv[]) {
-    char **p;
-    if (environ == NULL) {
-        env_dump();
-        return 0;
-    }
-    for (p=environ; *p != NULL; p++) {
-        char **key;
-        const char *val;
-        if (env_get_detail((const char *) *p, &key, &val) >= 0) {
-            printf("%s\n", *key);
-        } else {
-            printf("%s\n", *p);
-        }
-    }
+    env_dump();
     return 0;
 }
 
