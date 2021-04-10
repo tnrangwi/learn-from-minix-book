@@ -140,6 +140,7 @@ static struct cmd_simpleCmd *allocCmd(struct cmd_simpleCmd *commands, int numCmd
     struct cmd_simpleCmd *last = result + numCmds - 1;
     last->words = NULL;
     last->environ = NULL;
+    last->varBuf = NULL;
     return result;
 }
 
@@ -371,6 +372,16 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                     }
                     (*curWord)[numChars - 1] = *pos;
                     state = PARSE_VAR;
+                } else if (*pos == '$') {
+                    if (allocString(&actCmd->varBuf, 0, initBufsize) == NULL) {
+                        cmd_free(result, numCmds);
+                        return -1;
+                    }
+                    varBufsize = initBufsize;
+                    varNumChars = 0;
+                    varEnclosed = 0;
+                    prevState = state;
+                    state = PARSE_VARNAME;
                 } else if (isIn(*pos, commandChars)) {
                     if (++numChars >= bufsize) {
                         if (allocString(curWord, bufsize, initBufsize) == NULL) {
@@ -429,7 +440,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                         actCmd->varBuf[varNumChars - 1] = '\0';
                         pos--;
                     }
-                    if (varVal == NULL) *varVal = env_get(actCmd->varBuf);
+                    if (varVal == NULL) varVal = env_get(actCmd->varBuf);
                     size_t varLen = 0;
                     if (varVal != NULL) {
                         varLen = strlen(varVal);
@@ -501,6 +512,8 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
     //already.
     //FIXME: Check when this is necessary, as in the last command we may get here without an act command.
     if (actCmd != NULL) {
+        const char *varVal = NULL;
+        size_t varLen = 0;
         switch (state) {
             case PARSE_WHITESPACE:
                 actCmd->next = CMD_TERMINATED;
@@ -530,6 +543,40 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                 (*curWord)[numChars] = '\0';
                 actCmd->next = CMD_TERMINATED;
                 break;
+            case PARSE_VARNAME:
+               if (varNumChars + 1 >= varBufsize) {
+                    if (allocString(&actCmd->varBuf, varBufsize, 1) == NULL) {
+                        cmd_free(result, numCmds);
+                        return -1;
+                    }
+                    varBufsize += 1;
+                }
+                if (varEnclosed) { //if enclosed in braces, we have parsed the brace already
+                    log_out(0, "Syntax error, bad variable substitution\n");
+                    cmd_free(result, numCmds);
+                    return -1;
+                }
+                actCmd->varBuf[varNumChars] = '\0';
+                varVal = env_get(actCmd->varBuf);
+                if (varVal != NULL) {
+                    varLen = strlen(varVal);
+                }
+                //FIXME: Integer overflow
+                if (varLen + numChars + 1 >= bufsize) {
+                    if (allocString(curWord, numChars, varLen + 1) == NULL) {
+                        cmd_free(result, numCmds);
+                        return -1;
+                    }
+                }
+                //FIXME: check previous state, currently it is alway PARSE_WORD or PARSE_VAR, in both cases curWord is target
+                if (varLen > 0) {
+                    strcpy((*curWord) + numChars, varVal);
+                } else {
+                    (*curWord)[numChars] = '\0';
+                }
+                free(actCmd->varBuf); //FIXME: One buffer for all, local to this function would be enough
+                state = CMD_TERMINATED;
+                break;
             default:
                 cmd_free(result, numCmds);
                 log_out(0, "Unexpected state at end of parsing:%d\n", state);
@@ -539,4 +586,3 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
     *commands = result;
     return numCmds;
 }
-
