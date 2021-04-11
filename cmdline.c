@@ -454,7 +454,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                     }
                     //FIXME: check previous state, currently it is alway PARSE_WORD or PARSE_VAR, in both cases curWord is target
                     if (varLen > 0) strcpy((*curWord) + numChars, varVal);
-                    free(actCmd->varBuf); //FIXME: One buffer for all, local to this function would be enough
+                    free(actCmd->varBuf); actCmd->varBuf = NULL; //FIXME: Use one buffer for all, local to this function
                     numChars += varLen;
                     state = prevState;
                     break;
@@ -574,7 +574,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                 } else {
                     (*curWord)[numChars] = '\0';
                 }
-                free(actCmd->varBuf); //FIXME: One buffer for all, local to this function would be enough
+                free(actCmd->varBuf); free(actCmd->varBuf); //FIXME: One buffer for all, local to this function
                 state = CMD_TERMINATED;
                 break;
             default:
