@@ -340,6 +340,16 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                         bufsize += initBufsize;
                     }
                     (*curWord)[numChars - 1] = *pos;
+                } else if (*pos == '$') {
+                    if (allocString(&actCmd->varBuf, 0, initBufsize) == NULL) {
+                        cmd_free(result, numCmds);
+                        return -1;
+                    }
+                    varBufsize = initBufsize;
+                    varNumChars = 0;
+                    varEnclosed = 0;
+                    prevState = state;
+                    state = PARSE_VARNAME;
                 } else if (isIn(*pos, whiteSpace)) {
                     if (numChars + 1 >= bufsize && allocString(curWord, bufsize, 1) == NULL) {
                         cmd_free(result, numCmds);
@@ -411,7 +421,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                     break;
                 } else {
                     const char *varVal = NULL;
-                    if (++varNumChars >= varBufsize) {
+                    if (varNumChars + 1 >= varBufsize) {
                         if (allocString(&actCmd->varBuf, varBufsize, initBufsize) == NULL) {
                             cmd_free(result, numCmds);
                             return -1;
@@ -419,17 +429,18 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                         varBufsize += initBufsize;
                     }
                     if (isVar(pos, 1)) {
+                        varNumChars++;
                         actCmd->varBuf[varNumChars - 1] = *pos;
                         break; //continue parsing - in all other cases the name of the var is clear
                     } else if (*pos == '}') { //{
                         if (varEnclosed) {
                             //varname is varNumChars from actCmd->varBuf
-                            actCmd->varBuf[varNumChars - 1] = '\0';
+                            actCmd->varBuf[varNumChars] = '\0';
                         } else if (varNumChars == 0) {
                             varVal = "$}"; //{
                         } else {
                             //varname is varNumChars from actCmd->varBuf, put brace back into input
-                            actCmd->varBuf[varNumChars - 1] = '\0';
+                            actCmd->varBuf[varNumChars] = '\0';
                             pos--;
                         }
                     } else if (varEnclosed) {
@@ -437,7 +448,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                         cmd_free(result, numCmds);
                         return -1;
                     } else {
-                        actCmd->varBuf[varNumChars - 1] = '\0';
+                        actCmd->varBuf[varNumChars] = '\0';
                         pos--;
                     }
                     if (varVal == NULL) varVal = env_get(actCmd->varBuf);
