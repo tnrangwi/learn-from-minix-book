@@ -585,7 +585,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                 } else {
                     (*curWord)[numChars] = '\0';
                 }
-                free(actCmd->varBuf); free(actCmd->varBuf); //FIXME: One buffer for all, local to this function
+                free(actCmd->varBuf); actCmd->varBuf = NULL; //FIXME: One buffer for all, local to this function
                 state = CMD_TERMINATED;
                 break;
             default:
