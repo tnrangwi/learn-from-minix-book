@@ -9,6 +9,7 @@
 #include "trsh.h"
 #include "log.h"
 #include "env.h"
+#include "mem.h"
 
 #define RUN_ALWAYS 0
 #define RUN_IF_OK 1
@@ -135,7 +136,7 @@ static int findCommand(const char *cmd, char **name, char **path) {
             *path = NULL;
             return (int) (intCmd - shlFunc);
         }
-        *name = (char *) malloc((cmdLen + 1) * sizeof(char));
+        MALLOC(*name, char, (cmdLen + 1) * sizeof(char));
         if (*name == NULL) {
             perror("Cannot allocate memory for command name");
             return -1;
@@ -152,10 +153,10 @@ static int findCommand(const char *cmd, char **name, char **path) {
                 //? operator used for side effects only, cast to (int) to make compiler happy
                 start=end+1, start <= searchPath+pathLen ? (end=strchr(start, ':')) || (end = searchPath+pathLen) : (int) (end=NULL)) {
             if (start == end) { //Special case, empty path component means current directory
-                *path = (char *) malloc((cmdLen + 3) * sizeof(char));
+                MALLOC(*path, char, (cmdLen + 3) * sizeof(char));
                 if (*path == NULL) {
                     perror("Cannot allocate memory for search path");
-                    free(*name);
+                    FREE(*name);
                     return -1;
                 }
                 strcpy(*path, "./");
@@ -167,10 +168,10 @@ static int findCommand(const char *cmd, char **name, char **path) {
                     //FIXME: Debug only output that we skip this
                     continue;
                 }
-                *path = (char *) malloc((thisPathLen + strlen(cmd) + 2) * sizeof(char));
+                MALLOC(*path, char, (thisPathLen + strlen(cmd) + 2) * sizeof(char));
                 if (*path == NULL) {
                     perror("Cannot allocate memory for search path");
-                    free(*name);
+                    FREE(*name);
                     return -1;
                 }
                 strncpy(*path, start, thisPathLen);
@@ -181,27 +182,27 @@ static int findCommand(const char *cmd, char **name, char **path) {
                 break;
             } else {
                 //FIXME: This in principle only is OK for file not found. We may check errno here.
-                free(*path);
+                FREE(*path);
                 *path = NULL;
                 errno = 0;
             }
         }
-        if (*path == NULL) free(*name);
+        if (*path == NULL) FREE(*name);
     } else {
         if (last[1] == '\0') {
             fprintf(stderr, "Empty command:%s\n", cmd);
             return -1;
         }
-        *name = (char *) malloc((strlen(last + 1) + 1) * sizeof(char));
+        MALLOC(*name, char, (strlen(last + 1) + 1) * sizeof(char));
         if (*name == NULL) {
             perror("Cannot allocate memory for command name");
             return -1;
         }
         strcpy(*name, last + 1);
-        *path = (char *) malloc((strlen(cmd) + 1) * sizeof(char));
+        MALLOC(*path, char, (strlen(cmd) + 1) * sizeof(char));
         if (*path == NULL) {
             perror("Cannot allocate memory for command path");
-            free(*name);
+            FREE(*name);
             return -1;
         }
         strcpy(*path, cmd);
@@ -210,8 +211,8 @@ static int findCommand(const char *cmd, char **name, char **path) {
     if (access(*path, X_OK) == 0) {
         return INT_MAX;
     } else {
-        free(*name);
-        free(*path);
+        FREE(*name);
+        FREE(*path);
         return -1;
     }
 }
@@ -376,7 +377,7 @@ static void init(int argc, char *argv[]) {
     }
     argc -= optind;
     argv += optind;
-    trsh_status.environ = (char **) malloc(sizeof(char *));
+    MALLOC(trsh_status.environ, char *, sizeof(char *));
     if (trsh_status.environ == NULL) {
         log_out(0, "Out of memory in init\n");
         _exit(1);

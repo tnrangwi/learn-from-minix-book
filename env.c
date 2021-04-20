@@ -4,6 +4,7 @@
 
 #include "env.h"
 #include "log.h"
+#include "mem.h"
 
 static char **envStore = NULL;
 static int nEnv = 0;
@@ -85,23 +86,24 @@ int env_put(const char *keyVal) {
         return -1;
     }
     if ((rc = getEnv(keyVal, &key, &val)) < -1) {
-        free(word);
+        FREE(word);
         return -1;
     } else if(rc == -1) {
         if (envStore == NULL) {
             envStore = (char **) malloc(2 * sizeof(char *));
             if (envStore == NULL) {
-                free(word);
+                FREE(word);
                 log_out(0, "No more memory in environment\n");
                 return -1;
             }
             key = envStore;
             nEnv = 1;
         } else {
-            char **tEnv = (char **) realloc(envStore, (++nEnv + 1) * sizeof(char *));
+            char **tEnv;
+            REALLOC(tEnv,char *,(++nEnv + 1) * sizeof(char *),envStore);
             if (tEnv == NULL) {
                 log_out(0, "Out of memory when adding to environment\n");
-                free(word);
+                FREE(word);
                 nEnv--;
                 return -1;
             }
@@ -110,7 +112,7 @@ int env_put(const char *keyVal) {
        }
        envStore[nEnv] = NULL;
     } else {
-        free(*key);
+        FREE(*key);
     }
     *key = word;
     strcpy(word, keyVal);

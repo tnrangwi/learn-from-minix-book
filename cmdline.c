@@ -5,7 +5,7 @@
   * Implement fg / bg for job control. Goes hand in hand with changes in signal handling.
   * Implement at least ``
   * Implement redirections
-  * Implement shell variables and export, especially setting variables for external calls
+  * Implement special shell variables
   * Tests for memory leaks / memory usage still necessary
   * Error handling when one of the commands does not exist / exec fails - is this correct currently?
  */
@@ -17,6 +17,7 @@
 #include "cmdline.h"
 #include "log.h"
 #include "env.h"
+#include "mem.h"
 
 #define PARSE_UNKNOWN 0
 #define PARSE_WHITESPACE 1
@@ -98,21 +99,21 @@ void cmd_free(struct cmd_simpleCmd *commands, int numCmds) {
         if (current->words) {
             for (j=0; current->words[j] != NULL; j++) {
                 log_out(2, "Free word %d\n", j);
-                free(current->words[j]);
+                FREE(current->words[j]);
             }
             log_out(2, "Free words.\n");
-            free(current->words);
+            FREE(current->words);
         }
         if (current->environ) {
             for (j=0; current->environ[j] != NULL; j++) {
-                free(current->environ[j]);
+                FREE(current->environ[j]);
             }
-            free(current->environ);
+            FREE(current->environ);
         }
-        if (current->varBuf) free(current->varBuf);
+        if (current->varBuf) FREE(current->varBuf);
     }
     log_out(2, "Free command(s) itself\n");
-    free(commands);
+    FREE(commands);
 }
 
 /**
@@ -126,9 +127,9 @@ static struct cmd_simpleCmd *allocCmd(struct cmd_simpleCmd *commands, int numCmd
         return NULL;
     }
     if (numCmds == 1) { //1st command ever
-        result = (struct cmd_simpleCmd *) malloc(numCmds * sizeof(struct cmd_simpleCmd));
+        MALLOC(result,struct cmd_simpleCmd, sizeof(struct cmd_simpleCmd));
     } else { //next command
-        result = (struct cmd_simpleCmd *) realloc(commands, numCmds * sizeof(struct cmd_simpleCmd));
+        REALLOC(result,struct cmd_simpleCmd,numCmds * sizeof(struct cmd_simpleCmd),commands);
         if (result == NULL) {
             cmd_free(commands, numCmds - 1);
         }
@@ -170,7 +171,7 @@ static char **allocWord(struct cmd_simpleCmd *cmd, int allocType) {
             return NULL;
     }
     if (*arrayAddr == NULL) {
-        *arrayAddr = (char **) malloc(2 * sizeof(char *));
+        MALLOC(*arrayAddr, char *, 2 * sizeof(char *));
         if (*arrayAddr == NULL) {
             log_out(0, "Error allocating memory of type %d\n", allocType);
             return NULL;
@@ -178,7 +179,7 @@ static char **allocWord(struct cmd_simpleCmd *cmd, int allocType) {
         wordPtr = *arrayAddr;
     } else {
         for (wordPtr = *arrayAddr, nWord = 0; *wordPtr != NULL; nWord++, wordPtr++);
-        wordPtr = (char **) realloc(*arrayAddr, (nWord + 2) * sizeof(char *));
+        REALLOC(wordPtr,char *,(nWord + 2) * sizeof(char *),*arrayAddr);
         if (wordPtr == NULL) {
             log_out(0, "Error re-allocating environment memory\n");
             return NULL;
@@ -199,7 +200,7 @@ static char **allocWord(struct cmd_simpleCmd *cmd, int allocType) {
  */
 static char *allocString(char **word, int size, int inc) {
     if (*word == NULL) {
-        *word = (char *) malloc(inc * sizeof(char));
+        MALLOC(*word, char, inc * sizeof(char));
         if (*word == NULL) {
             log_out(0, "Out of memory when allocating word\n");
             return NULL;
@@ -209,7 +210,8 @@ static char *allocString(char **word, int size, int inc) {
             log_out(0, "Integer overflow when reallocating word\n");
             return NULL;
         }
-        char *n = realloc(*word, (size + inc) * sizeof(char));
+        char *n;
+        REALLOC(n,char,(size + inc) * sizeof(char),*word);
         if (n == NULL) {
             log_out(0, "Cannot reallocate memory for word\n");
             return NULL;
@@ -372,7 +374,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                         return -1;
                     }
                     *curWord = actCmd->words[0]; //take over string that must be in 1st word
-                    free(actCmd->words); actCmd->words = NULL; //FIXME: Macro?
+                    FREE(actCmd->words); actCmd->words = NULL; //FIXME: Macro?
                     if (++numChars >= bufsize) {
                         if (allocString(curWord, bufsize, initBufsize) == NULL) {
                             cmd_free(result, numCmds);
@@ -465,7 +467,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                     }
                     //FIXME: check previous state, currently it is alway PARSE_WORD or PARSE_VAR, in both cases curWord is target
                     if (varLen > 0) strcpy((*curWord) + numChars, varVal);
-                    free(actCmd->varBuf); actCmd->varBuf = NULL; //FIXME: Use one buffer for all, local to this function
+                    FREE(actCmd->varBuf); actCmd->varBuf = NULL; //FIXME: Use one buffer for all, local to this function
                     numChars += varLen;
                     state = prevState;
                     break;
@@ -585,7 +587,7 @@ int cmd_parse(const char *line, struct cmd_simpleCmd **commands) {
                 } else {
                     (*curWord)[numChars] = '\0';
                 }
-                free(actCmd->varBuf); actCmd->varBuf = NULL; //FIXME: One buffer for all, local to this function
+                FREE(actCmd->varBuf); actCmd->varBuf = NULL; //FIXME: One buffer for all, local to this function
                 state = CMD_TERMINATED;
                 break;
             default:
