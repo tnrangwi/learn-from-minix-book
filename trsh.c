@@ -298,6 +298,8 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
                     p++;
                 }
             }
+            //FIXME: commands[nCmd].words[0] should get the content of cmdName. In addition,
+            //we must no longer free cmdName
             execve(cmdPath, commands[nCmd].words, environ);
             //we are still here - unable to start command - error handling
             fprintf(stderr, "Error executing external call:%s:Error:%s\n", commands[nCmd].words[0], strerror(errno));
@@ -319,7 +321,8 @@ static int runPipe(struct cmd_simpleCmd *commands, int maxCmd) {
             //Yes, leave the loop for sure. Further on we should close all file descriptors we have created with pipe()
             return -1;
         }
-
+        if(cmdName != NULL) FREE(cmdName);
+        if(cmdPath != NULL) FREE(cmdPath);
     }
     log_out(2, "Wait for last command to terminate\n");
     int callstat = 0;
