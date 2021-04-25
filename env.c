@@ -80,7 +80,7 @@ int env_put(const char *keyVal) {
     if (keyVal == NULL) {
         log_out(0, "Internal error, NULL key for new environment setting\n");
     }
-    word = (char *) malloc((strlen(keyVal) + 1) * sizeof(char));
+    MALLOC(word,char,(strlen(keyVal)+1)*sizeof(char));
     if (word == NULL) {
         log_out(0, "No memory in environment\n");
         return -1;
@@ -90,7 +90,7 @@ int env_put(const char *keyVal) {
         return -1;
     } else if(rc == -1) {
         if (envStore == NULL) {
-            envStore = (char **) malloc(2 * sizeof(char *));
+            MALLOC(envStore,char *,2*sizeof(char *));
             if (envStore == NULL) {
                 FREE(word);
                 log_out(0, "No more memory in environment\n");
