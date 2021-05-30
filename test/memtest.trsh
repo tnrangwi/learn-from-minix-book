@@ -1,0 +1,5 @@
+#!/home/toaster/src/trsh/trsh
+#Sample script with some commands to test memory allocation
+#Compile trsh with -D MEM_DBG and run this redirecting stderr
+#for analysis
+ls | grep Make | cut -c 2
