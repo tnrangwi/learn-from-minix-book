@@ -1,0 +1,17 @@
+Memory check:
+- Rebuild with -D MEM_DEBUG - this will write messages about all alloc / free
+  and realloc.
+- Run test code to filter this through AWK script, e.g.:
+  sh: ./memtest.trsh 2>&1 >/dev/null | awk -f memchk.awk
+  csh: ./memtest.trsh |& awk -f memchk.awk
+- Check oputput: awk chwecks all alloc / free output by MEM_DEBUG and rememers
+  unfreed memory.
+
+Bugs:
+
+- AWK parses all lines starting with A / F for alloc / free and ignores
+  remainder. This requires no additional output to stderr starting with
+  F / A.
+- Test script - path to trsh most probably needs adjustments in she-bang.
+- AWK has no knowledge about global allocs. These always are marked although
+  this is not an error. E.g. the shell status is freed by exit of the process.
